@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/lib/build.sh"
 # Script configuration
 readonly SCRIPT_NAME="setup.sh"
 readonly SCRIPT_VERSION="1.0.0"
-readonly PATCH_FILE="deps/patches/vscode/feature-cline-ai.patch"
+readonly PATCH_FILE="deps/patches/vscode/feature-codex.patch"
 
 # Setup options
 FORCE_REINSTALL=false

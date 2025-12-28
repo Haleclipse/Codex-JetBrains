@@ -100,7 +100,7 @@ class DynamicButtonManager(private val project: Project) {
             com.intellij.openapi.application.ApplicationManager.getApplication().invokeLater {
                 try {
                     val actionManager = ActionManager.getInstance()
-                    val dynamicGroup = actionManager.getAction("RunVSAgent.DynamicExtensionActions")
+                    val dynamicGroup = actionManager.getAction("Codex.DynamicExtensionActions")
                     dynamicGroup?.let { group ->
                         logger.debug("Triggering UI refresh for dynamic actions group")
                     }

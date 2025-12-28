@@ -54,7 +54,7 @@ object ConfigFileUtils {
     /**
      * Save properties to main configuration file
      */
-    fun saveMainConfig(properties: Properties, comment: String = "RunVSAgent Configuration") {
+    fun saveMainConfig(properties: Properties, comment: String = "Codex Configuration") {
         try {
             // Ensure configuration directory exists
             ensureConfigDirExists()

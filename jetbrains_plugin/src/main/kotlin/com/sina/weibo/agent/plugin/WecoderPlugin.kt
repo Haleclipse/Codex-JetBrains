@@ -69,7 +69,7 @@ class WecoderPlugin : StartupActivity.DumbAware {
         val osArch = System.getProperty("os.arch")
         
         LOG.info(
-            "Initializing RunVSAgent plugin for project: ${project.name}, " +
+            "Initializing Codex plugin for project: ${project.name}, " +
             "OS: $osName $osVersion ($osArch), " +
             "IDE: ${appInfo.fullApplicationName} (build ${appInfo.build}), " +
             "Plugin version: $pluginVersion, " +
@@ -138,19 +138,19 @@ class WecoderPlugin : StartupActivity.DumbAware {
                 
                 // Register project-level resource cleanup
                 Disposer.register(project, Disposable {
-                    LOG.info("Disposing RunVSAgent plugin for project: ${project.name}")
+                    LOG.info("Disposing Codex plugin for project: ${project.name}")
                     pluginService.dispose()
                     extensionManager.dispose()
                     SystemObjectProvider.dispose()
                 })
                 
-                LOG.info("RunVSAgent plugin initialized successfully for project: ${project.name}")
+                LOG.info("Codex plugin initialized successfully for project: ${project.name}")
             } else {
                 LOG.error("Configuration is valid but no extension ID found, plugin initialization paused")
                 return
             }
         } catch (e: Exception) {
-            LOG.error("Failed to initialize RunVSAgent plugin", e)
+            LOG.error("Failed to initialize Codex plugin", e)
         }
     }
     
@@ -213,7 +213,7 @@ class WecoderPlugin : StartupActivity.DumbAware {
             }
         }.apply {
             isDaemon = true
-            name = "RunVSAgent-ConfigMonitor"
+            name = "Codex-ConfigMonitor"
             start()
         }
     }
