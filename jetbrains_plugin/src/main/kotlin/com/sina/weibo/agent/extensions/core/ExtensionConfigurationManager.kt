@@ -3,11 +3,13 @@ package com.sina.weibo.agent.extensions.core
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.sina.weibo.agent.extensions.common.ExtensionType
+import com.sina.weibo.agent.util.PluginConstants
+import java.io.File
 
 /**
  * Extension configuration manager.
  * Simplified to always use Codex extension - no config file needed.
+ * Checks if extension is installed in user directory.
  */
 @Service(Service.Level.PROJECT)
 class ExtensionConfigurationManager(private val project: Project) {
@@ -16,7 +18,7 @@ class ExtensionConfigurationManager(private val project: Project) {
 
     companion object {
         // Default extension ID - always Codex
-        private const val DEFAULT_EXTENSION_ID = "codex"
+        const val DEFAULT_EXTENSION_ID = "codex"
 
         /**
          * Get extension configuration manager instance
@@ -60,7 +62,28 @@ class ExtensionConfigurationManager(private val project: Project) {
      * Get configuration status
      */
     fun getConfigurationStatus(): String {
-        return "Configuration Status: Valid ($DEFAULT_EXTENSION_ID)"
+        val installed = isExtensionInstalled()
+        return if (installed) {
+            "Configuration Status: Valid ($DEFAULT_EXTENSION_ID - installed)"
+        } else {
+            "Configuration Status: Extension not installed"
+        }
+    }
+
+    /**
+     * Check if the Codex extension is installed in user directory
+     */
+    fun isExtensionInstalled(): Boolean {
+        val extensionPath = getExtensionInstallPath()
+        val packageJson = File(extensionPath, "package.json")
+        return packageJson.exists()
+    }
+
+    /**
+     * Get extension install path
+     */
+    fun getExtensionInstallPath(): String {
+        return "${VsixManager.getBaseDirectory()}/$DEFAULT_EXTENSION_ID"
     }
 
     /**
@@ -85,19 +108,36 @@ class ExtensionConfigurationManager(private val project: Project) {
     }
 
     /**
-     * Get configuration error - always returns null (no error)
+     * Get configuration error - returns error if extension not installed
      */
-    fun getConfigurationError(): String? = null
+    fun getConfigurationError(): String? {
+        return if (isExtensionInstalled()) {
+            null
+        } else {
+            "Codex extension not installed. Please install from VSIX."
+        }
+    }
 
     /**
-     * Get configuration file path - returns descriptive string
+     * Get configuration file path - returns extension install path
      */
-    fun getConfigurationFilePath(): String = "(no config file - hardcoded to $DEFAULT_EXTENSION_ID)"
+    fun getConfigurationFilePath(): String = getExtensionInstallPath()
 
     /**
      * Get configuration load time - returns null
      */
     fun getConfigurationLoadTime(): Long? = null
+
+    /**
+     * Get recovery suggestions for missing extension
+     */
+    fun getRecoverySuggestions(): List<String> {
+        return listOf(
+            "1. 点击 '选择 VSIX 文件安装' 按钮安装 Codex 扩展",
+            "2. 从 https://www.vsixhub.com/vsix/163404/ 下载 VSIX 文件",
+            "3. 扩展将安装到 ${getExtensionInstallPath()}"
+        )
+    }
 
     /**
      * Dispose the configuration manager

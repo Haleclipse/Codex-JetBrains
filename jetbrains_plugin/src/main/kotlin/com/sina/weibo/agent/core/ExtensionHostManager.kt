@@ -116,7 +116,10 @@ class ExtensionHostManager : Disposable {
                 extensionIdentifier = extensionDesc.identifier.value
                 LOG.info("Registered extension: ${currentExtensionProvider!!.getExtensionId()}")
             } else {
-                LOG.error("Extension path not found: $extensionPath")
+                // Extension not installed - this is expected for first-time users
+                // Do not log as error, just info and return gracefully
+                LOG.info("Extension not installed yet: ${currentExtensionProvider!!.getExtensionId()}")
+                LOG.info("User needs to install via VSIX. Expected path: $extensionPath")
                 dispose()
                 return
             }
@@ -381,40 +384,23 @@ class ExtensionHostManager : Disposable {
     
     /**
      * Get extension path from configuration
+     * Only checks user install directory (~/.cometix/plugins/)
+     * No built-in extensions - user must install via VSIX
      */
     private fun getExtensionPath(extensionConfig: ExtensionMetadata): String? {
-        // First check project paths
-        val projectPath = project.basePath
-        val homeDir = System.getProperty("user.home")
-        if (projectPath != null) {
-            val possiblePaths = listOf(
-                "${getBaseDirectory()}/${extensionConfig.getCodeDir()}"
-            )
-            
-            val foundPath = possiblePaths.find { File(it).exists() }
-            if (foundPath != null) {
-                return foundPath
-            }
+        // Only check user install directory
+        val userInstallPath = "${getBaseDirectory()}/${extensionConfig.getCodeDir()}"
+        val packageJson = File(userInstallPath, "package.json")
+
+        if (packageJson.exists()) {
+            LOG.info("Found extension in user install directory: $userInstallPath")
+            return userInstallPath
         }
-        
-        // Then check plugin resources (for built-in extensions)
-        try {
-            val pluginResourcePath = com.sina.weibo.agent.util.PluginResourceUtil.getResourcePath(
-                com.sina.weibo.agent.util.PluginConstants.PLUGIN_ID, 
-                extensionConfig.getCodeDir()
-            )
-            if (pluginResourcePath != null && File(pluginResourcePath).exists()) {
-                return pluginResourcePath
-            }
-        } catch (e: Exception) {
-            LOG.warn("Failed to get plugin resource path for extension: ${extensionConfig.getCodeDir()}", e)
-        }
-        
-        // For development/testing, return a default path
-        // This allows the extension to work even without the actual extension files
-        val defaultPath = projectPath?.let { "$it/${extensionConfig.getCodeDir()}" } ?: "/tmp/${extensionConfig.getCodeDir()}"
-        LOG.info("Using default extension path: $defaultPath")
-        return defaultPath
+
+        // Extension not installed - return null to signal installation required
+        LOG.info("Extension not installed: ${extensionConfig.getCodeDir()}")
+        LOG.info("Expected path: $userInstallPath")
+        return null
     }
 
     /**

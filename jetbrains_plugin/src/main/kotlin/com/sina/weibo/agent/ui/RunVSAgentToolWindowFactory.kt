@@ -636,15 +636,14 @@ class RunVSAgentToolWindowFactory : ToolWindowFactory {
             // Set content panel with both label and button
             contentPanel.layout = BorderLayout()
 
-            // Check configuration status and show appropriate content
-            if (configManager.isConfigurationLoaded() && configManager.isConfigurationValid()) {
-                // Configuration is valid, show system info
+            // Check extension installation status and show appropriate content
+            if (configManager.isExtensionInstalled()) {
+                // Extension is installed, show system info (will auto-start in init)
                 contentPanel.add(placeholderLabel, BorderLayout.CENTER)
                 contentPanel.add(buttonPanel, BorderLayout.SOUTH)
             } else {
-                // Configuration is invalid, show plugin selection
+                // Extension not installed, show install panel
                 contentPanel.add(pluginSelectionPanel, BorderLayout.CENTER)
-                contentPanel.add(configStatusPanel, BorderLayout.SOUTH)
             }
 
             add(contentPanel, BorderLayout.CENTER)
@@ -706,35 +705,27 @@ class RunVSAgentToolWindowFactory : ToolWindowFactory {
         }
 
         /**
-         * Start configuration monitoring to detect changes
+         * Start configuration monitoring to detect extension installation changes
          */
         private fun startConfigurationMonitoring() {
             // Start background monitoring thread
             Thread {
                 try {
+                    var lastInstallState = configManager.isExtensionInstalled()
+
                     while (!project.isDisposed) {
                         Thread.sleep(2000) // Check every 2 seconds
 
-                        if (!project.isDisposed) {
-                            // Don't update UI if plugin is starting or running
-                            if (isPluginStarting || isPluginRunning) {
-                                logger.debug("Plugin is starting or running, skipping UI update")
-                                continue
-                            }
+                        if (!project.isDisposed && !isPluginStarting) {
+                            val currentInstallState = configManager.isExtensionInstalled()
 
-                            // Only update UI if we're not in the middle of plugin startup
-                            // Check if plugin is actually running before updating UI
-                            val isPluginRunning = isPluginActuallyRunning()
+                            // Only trigger update if install state changed (installed -> uninstalled or vice versa)
+                            if (currentInstallState != lastInstallState) {
+                                logger.info("Extension installation state changed: $lastInstallState -> $currentInstallState")
+                                lastInstallState = currentInstallState
 
-                            // Only update UI if plugin is not running or if there's a significant change
-                            if (!isPluginRunning) {
                                 ApplicationManager.getApplication().invokeLater {
                                     updateUIContent()
-                                }
-                            } else {
-                                // Plugin is running, only update status labels, don't change main UI
-                                ApplicationManager.getApplication().invokeLater {
-                                    updateConfigStatus(configStatusPanel.getComponent(0) as JLabel)
                                 }
                             }
                         }
@@ -834,285 +825,99 @@ class RunVSAgentToolWindowFactory : ToolWindowFactory {
         }
 
         /**
-         * Create plugin selection panel
+         * Create extension install panel (simplified - Codex only)
+         * 简化为单纯的安装提示界面
          */
         private fun createPluginSelectionPanel(): JPanel {
+            val isDarkTheme = detectCurrentTheme()
+
             val panel = JPanel()
             panel.layout = BorderLayout()
-            panel.border = javax.swing.BorderFactory.createEmptyBorder(20, 20, 20, 20)
+            panel.border = javax.swing.BorderFactory.createEmptyBorder(40, 40, 40, 40)
 
-            // Title
-            val titleLabel = JLabel("🔧 Select Plugin").apply {
-                font = font.deriveFont(18f)
-                horizontalAlignment = javax.swing.SwingConstants.CENTER
+            // 中央内容面板
+            val centerPanel = JPanel()
+            centerPanel.layout = javax.swing.BoxLayout(centerPanel, javax.swing.BoxLayout.Y_AXIS)
+            centerPanel.isOpaque = false
+
+            // 图标/标题
+            val titleLabel = JLabel("📦 安装 Codex 扩展").apply {
+                font = font.deriveFont(20f).deriveFont(java.awt.Font.BOLD)
+                foreground = if (isDarkTheme) java.awt.Color(0xF8, 0xFA, 0xFC) else java.awt.Color(0x1E, 0x29, 0x3B)
+                alignmentX = java.awt.Component.CENTER_ALIGNMENT
                 border = javax.swing.BorderFactory.createEmptyBorder(0, 0, 20, 0)
             }
 
-            // Description
-            val descLabel = JLabel("Invalid configuration detected, please select a default plugin to continue:").apply {
+            // 说明文字
+            val descLabel = JLabel("<html><center>需要安装 OpenAI Codex 扩展才能使用此插件。<br><br>请点击下方按钮选择 VSIX 文件进行安装。</center></html>").apply {
                 font = font.deriveFont(14f)
-                horizontalAlignment = javax.swing.SwingConstants.CENTER
-                border = javax.swing.BorderFactory.createEmptyBorder(0, 0, 20, 0)
-            }
-
-            // Plugin list with modern styling
-            val pluginListPanel = createPluginListPanel()
-
-            // Action buttons
-            val buttonPanel = JPanel()
-            buttonPanel.layout = BorderLayout()
-            buttonPanel.border = javax.swing.BorderFactory.createEmptyBorder(20, 0, 0, 0)
-
-            val debugButton = JButton("🐛 Debug Info").apply {
-                preferredSize = JBUI.size(160, 36)
-                font = JBFont.label().deriveFont(14f)
-                isFocusPainted = false
-                isOpaque = false
-                addActionListener {
-                    showDebugInfo()
-                }
-            }
-            
-            buttonPanel.add(debugButton, BorderLayout.WEST)
-            
-            // Add all components
-            panel.add(titleLabel, BorderLayout.NORTH)
-            panel.add(descLabel, BorderLayout.CENTER)
-            panel.add(pluginListPanel, BorderLayout.CENTER)
-            panel.add(buttonPanel, BorderLayout.SOUTH)
-            
-            return panel
-        }
-
-        /**
-         * Create plugin list panel with modern styling
-         */
-        private fun createPluginListPanel(): JPanel {
-            val panel = JPanel()
-            panel.layout = javax.swing.BoxLayout(panel, javax.swing.BoxLayout.Y_AXIS)
-            panel.border = javax.swing.BorderFactory.createEmptyBorder(10, 0, 10, 0)
-
-            // Dynamically get available providers and their status
-            val extensions = extensionManager.getAllExtensions()
-            val currentExtensionId = ConfigFileUtils.getCurrentExtensionId()
-
-            val plugins = extensions.map { provider ->
-                val extensionId = provider.getExtensionId()
-                val isCurrent = provider.getExtensionId() == currentExtensionId
-                val isAvailable = provider.isAvailable(project)
-                
-                PluginInfo(
-                    id = extensionId,
-                    displayName = provider.getDisplayName(),
-                    description = provider.getDescription(),
-                    isAvailable = isAvailable,
-                    isCurrent = isCurrent
-                )
-            }
-
-            plugins.forEach { pluginInfo ->
-                val pluginRow = createPluginRow(pluginInfo)
-                panel.add(pluginRow)
-                panel.add(javax.swing.Box.createVerticalStrut(8))
-            }
-
-            return panel
-        }
-
-        /**
-         * Create a single plugin row
-         */
-        private fun createPluginRow(pluginInfo: PluginInfo): JPanel {
-            val rowPanel = JPanel(BorderLayout())
-            
-            // Detect current theme for styling
-            val isDarkTheme = detectCurrentTheme()
-            
-            // Main content panel
-            val contentPanel = JPanel(BorderLayout()).apply {
-                // Special background for current running plugin
-                background = when {
-                    pluginInfo.isCurrent -> if (isDarkTheme) {
-                        java.awt.Color(0x10, 0xB9, 0x81, 0x15) // Light green background for current plugin
-                    } else {
-                        java.awt.Color(0x05, 0x96, 0x69, 0x10) // Light green background for current plugin
-                    }
-                    else -> if (isDarkTheme) {
-                        java.awt.Color(0x2A, 0x2A, 0x2A, 0x80)
-                    } else {
-                        java.awt.Color(0xFF, 0xFF, 0xFF, 0x80)
-                    }
-                }
-                
-                // Special border for current running plugin
-                val borderColor = when {
-                    pluginInfo.isCurrent -> if (isDarkTheme) java.awt.Color(0x10, 0xB9, 0x81) else java.awt.Color(0x05, 0x96, 0x69)
-                    else -> if (isDarkTheme) java.awt.Color(0x40, 0x40, 0x40) else java.awt.Color(0xE5, 0xE7, 0xEB)
-                }
-                val borderWidth = if (pluginInfo.isCurrent) 2 else 1
-                
-                border = BorderFactory.createCompoundBorder(
-                    BorderFactory.createLineBorder(borderColor, borderWidth),
-                    javax.swing.BorderFactory.createEmptyBorder(12, 16, 12, 16)
-                )
-            }
-
-            // Top row: Title and buttons
-            val topRowPanel = JPanel(BorderLayout())
-            topRowPanel.isOpaque = false
-            topRowPanel.border = javax.swing.BorderFactory.createEmptyBorder(0, 0, 4, 0)
-
-            // Left side: Plugin name with status indicator
-            val statusIcon = when {
-                pluginInfo.isCurrent -> "🟢"
-                pluginInfo.isAvailable -> "✅"
-                else -> "❌"
-            }
-            val nameText = if (pluginInfo.isCurrent) {
-                "${pluginInfo.displayName} (Currently Running)"
-            } else {
-                pluginInfo.displayName
-            }
-            val nameLabel = JLabel("$statusIcon $nameText").apply {
-                font = font.deriveFont(15f).deriveFont(java.awt.Font.BOLD)
-                foreground = if (pluginInfo.isAvailable) {
-                    if (isDarkTheme) java.awt.Color(0xF8, 0xFA, 0xFC) else java.awt.Color(0x1E, 0x29, 0x3B)
-                } else {
-                    if (isDarkTheme) java.awt.Color(0x64, 0x74, 0x8B) else java.awt.Color(0x94, 0xA3, 0xB8)
-                }
-            }
-
-            // Right side: Action buttons
-            val buttonPanel = JPanel()
-            buttonPanel.layout = javax.swing.BoxLayout(buttonPanel, javax.swing.BoxLayout.X_AXIS)
-            buttonPanel.isOpaque = false
-
-            // VSIX upload button
-            val uploadButton = JButton("📦 Install From VSIX").apply {
-                preferredSize = JBUI.size(160, 36)
-                font = font.deriveFont(11f)
-                isFocusPainted = false
-                isOpaque = false
-                isEnabled = true
-                
                 foreground = if (isDarkTheme) java.awt.Color(0xCB, 0xD5, 0xE1) else java.awt.Color(0x47, 0x56, 0x69)
-                background = if (isDarkTheme) java.awt.Color(0x3E, 0x3E, 0x3E) else java.awt.Color(0xF1, 0xF5, 0xF9)
-                border = BorderFactory.createEmptyBorder(4, 6, 4, 6)
-                
+                alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                horizontalAlignment = javax.swing.SwingConstants.CENTER
+                border = javax.swing.BorderFactory.createEmptyBorder(0, 0, 30, 0)
+            }
+
+            // 安装按钮
+            val installButton = JButton("📦 选择 VSIX 文件安装").apply {
+                preferredSize = JBUI.size(220, 44)
+                maximumSize = JBUI.size(220, 44)
+                font = JBFont.label().deriveFont(15f).deriveFont(java.awt.Font.BOLD)
+                isFocusPainted = false
+                alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 addActionListener {
-                    uploadVsixForPlugin(pluginInfo.id, pluginInfo.displayName)
+                    uploadVsixForPlugin("codex", "OpenAI Codex")
                 }
             }
 
-            buttonPanel.add(javax.swing.Box.createHorizontalStrut(8))
-            buttonPanel.add(uploadButton)
-
-            // Add title and buttons to top row
-            topRowPanel.add(nameLabel, BorderLayout.WEST)
-            topRowPanel.add(buttonPanel, BorderLayout.EAST)
-
-            // Bottom row: Plugin description
-            val descriptionText = if (pluginInfo.isAvailable) {
-                pluginInfo.description
-            } else {
-                "${pluginInfo.description} (Plugin unavailable, please upload VSIX file)"
-            }
-            val descLabel = JLabel(descriptionText).apply {
+            // 提示文字
+            val hintLabel = JLabel("<html><center>下载地址: <font color='#3B82F6'>vsixhub.com/vsix/163404</font><br>安装路径: ~/.cometix/plugins/codex/</center></html>").apply {
                 font = font.deriveFont(12f)
-                foreground = if (pluginInfo.isAvailable) {
-                    if (isDarkTheme) java.awt.Color(0xCB, 0xD5, 0xE1) else java.awt.Color(0x47, 0x56, 0x69)
-                } else {
-                    if (isDarkTheme) java.awt.Color(0x64, 0x74, 0x8B) else java.awt.Color(0x94, 0xA3, 0xB8)
-                }
+                foreground = if (isDarkTheme) java.awt.Color(0x94, 0xA3, 0xB8) else java.awt.Color(0x64, 0x74, 0x8B)
+                alignmentX = java.awt.Component.CENTER_ALIGNMENT
+                horizontalAlignment = javax.swing.SwingConstants.CENTER
+                border = javax.swing.BorderFactory.createEmptyBorder(20, 0, 0, 0)
             }
 
-            // Add components to content panel
-            contentPanel.add(topRowPanel, BorderLayout.NORTH)
-            contentPanel.add(descLabel, BorderLayout.CENTER)
+            // 组装中央面板
+            centerPanel.add(javax.swing.Box.createVerticalGlue())
+            centerPanel.add(titleLabel)
+            centerPanel.add(descLabel)
+            centerPanel.add(installButton)
+            centerPanel.add(hintLabel)
+            centerPanel.add(javax.swing.Box.createVerticalGlue())
 
-            // Add click listener to the entire row for better UX - only for available plugins
-            if (pluginInfo.isAvailable) {
-                contentPanel.addMouseListener(object : java.awt.event.MouseAdapter() {
-                    override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                        if (e.clickCount == 1) {
-                            applyPluginSelection(pluginInfo.id)
-                        }
-                    }
-                    
-                    override fun mouseEntered(e: java.awt.event.MouseEvent) {
-                        contentPanel.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                        // Add hover effect
-                        if (isDarkTheme) {
-                            contentPanel.background = java.awt.Color(0x1E, 0x3A, 0x8A, 0x20)
-                        } else {
-                            contentPanel.background = java.awt.Color(0xDB, 0xEA, 0xFE, 0x80)
-                        }
-                        contentPanel.repaint()
-                    }
-                    
-                    override fun mouseExited(e: java.awt.event.MouseEvent) {
-                        contentPanel.cursor = java.awt.Cursor.getDefaultCursor()
-                        // Remove hover effect
-                        if (isDarkTheme) {
-                            contentPanel.background = java.awt.Color(0x2A, 0x2A, 0x2A, 0x80)
-                        } else {
-                            contentPanel.background = java.awt.Color(0xFF, 0xFF, 0xFF, 0x80)
-                        }
-                        contentPanel.repaint()
-                    }
-                })
-            } else {
-                // For unavailable plugins, set default cursor and no hover effects
-                contentPanel.cursor = java.awt.Cursor.getDefaultCursor()
-            }
+            panel.add(centerPanel, BorderLayout.CENTER)
 
-            rowPanel.add(contentPanel)
-            // Prevent BoxLayout (Y_AXIS) from stretching this row vertically
-            // Limit the maximum height of both contentPanel and rowPanel to their preferred heights
-            val pref = contentPanel.preferredSize
-            // Ensure preferred size is computed
-            contentPanel.doLayout()
-            val computedPref = if (pref != null && pref.height > 0) pref else contentPanel.preferredSize
-            contentPanel.maximumSize = java.awt.Dimension(Int.MAX_VALUE, computedPref.height)
-            rowPanel.maximumSize = java.awt.Dimension(Int.MAX_VALUE, computedPref.height)
-            // Keep the row aligned to the top when extra vertical space exists
-            rowPanel.alignmentY = javax.swing.Box.TOP_ALIGNMENT
-            return rowPanel
+            return panel
         }
 
         /**
-         * Plugin information data class
-         */
-        private data class PluginInfo(
-            val id: String,
-            val displayName: String,
-            val description: String,
-            val isAvailable: Boolean,
-            val isCurrent: Boolean = false
-        )
-
-        /**
-         * Upload VSIX file for a specific plugin
+         * Upload VSIX file for Codex extension
+         * Uses VsixUploadDialog for file selection
          */
         private fun uploadVsixForPlugin(pluginId: String, pluginName: String) {
             try {
                 // Use VsixUploadDialog directly
                 val success = VsixUploadDialog.show(project, pluginId, pluginName)
-                
+
                 if (success) {
+                    logger.info("VSIX installed successfully for $pluginId")
                     javax.swing.JOptionPane.showMessageDialog(
                         contentPanel,
-                        "VSIX file uploaded successfully!\nPlugin: $pluginName\nYou can now launch the plugin.",
-                        "Upload Complete",
+                        "✅ $pluginName 扩展安装成功！\n\n安装路径: ~/.cometix/plugins/$pluginId/\n\n插件将自动启动。",
+                        "安装成功",
                         javax.swing.JOptionPane.INFORMATION_MESSAGE
                     )
+                    // Refresh UI and start plugin
+                    updateUIContent()
                 }
             } catch (e: Exception) {
                 logger.error("Failed to upload VSIX for plugin: $pluginId", e)
                 javax.swing.JOptionPane.showMessageDialog(
                     contentPanel,
-                    "Upload failed: ${e.message}",
-                    "Error",
+                    "❌ 安装过程出错: ${e.message}",
+                    "错误",
                     javax.swing.JOptionPane.ERROR_MESSAGE
                 )
             }
@@ -1307,40 +1112,50 @@ class RunVSAgentToolWindowFactory : ToolWindowFactory {
         }
         
         /**
-         * Update UI content based on configuration status
+         * Update UI content based on extension installation status
          */
         private fun updateUIContent() {
-            // Don't update UI if plugin is starting or running
-            if (isPluginStarting || isPluginRunning) {
-                logger.info("Plugin is starting or running, skipping UI update")
+            // Don't update UI if plugin is starting
+            if (isPluginStarting) {
+                logger.info("Plugin is starting, skipping UI update")
                 return
             }
-            
-            // Check if plugin is actually running
-            val isPluginRunning = isPluginActuallyRunning()
-            
-            // If plugin is running, don't change the main UI content
-            if (isPluginRunning) {
-                logger.info("Plugin is running, keeping current UI content")
+
+            // Check if Codex extension is installed
+            val isExtensionInstalled = configManager.isExtensionInstalled()
+            logger.info("Extension installed: $isExtensionInstalled, plugin running: $isPluginRunning")
+
+            // If plugin is already running and WebView is showing, don't change UI
+            if (isPluginRunning && webViewManager.getLatestWebView() != null) {
+                logger.info("Plugin is running with WebView, keeping current UI content")
                 return
             }
-            
+
             contentPanel.removeAll()
-            
-            if (configManager.isConfigurationLoaded() && configManager.isConfigurationValid()) {
-                // Configuration is valid, show system info
+
+            if (isExtensionInstalled) {
+                // Extension is installed, show system info and auto-start
+                logger.info("Extension is installed, showing system info and auto-starting plugin")
                 contentPanel.add(placeholderLabel, BorderLayout.CENTER)
                 contentPanel.add(buttonPanel, BorderLayout.SOUTH)
-                logger.info("Showing system info panel - configuration is valid")
+                contentPanel.revalidate()
+                contentPanel.repaint()
+
+                // Auto-start plugin after UI is ready
+                javax.swing.SwingUtilities.invokeLater {
+                    if (!this.isPluginRunning && !isPluginStarting) {
+                        startPluginAfterSelection("codex")
+                    }
+                }
             } else {
-                // Configuration is invalid, show plugin selection
-                contentPanel.add(pluginSelectionPanel, BorderLayout.CENTER)
-                contentPanel.add(configStatusPanel, BorderLayout.SOUTH)
-                logger.info("Showing plugin selection panel - configuration is invalid")
+                // Extension not installed, show install panel
+                logger.info("Extension not installed, showing install panel")
+                // Recreate plugin selection panel to refresh theme
+                val freshPluginSelectionPanel = createPluginSelectionPanel()
+                contentPanel.add(freshPluginSelectionPanel, BorderLayout.CENTER)
+                contentPanel.revalidate()
+                contentPanel.repaint()
             }
-            
-            contentPanel.revalidate()
-            contentPanel.repaint()
         }
         
         /**

@@ -7,8 +7,6 @@ import com.sina.weibo.agent.core.ExtensionManager
 import com.sina.weibo.agent.extensions.common.ExtensionType
 import com.sina.weibo.agent.extensions.config.ExtensionConfig
 import com.sina.weibo.agent.extensions.config.ExtensionConfiguration
-import com.sina.weibo.agent.util.PluginConstants
-import com.sina.weibo.agent.util.PluginResourceUtil
 import java.io.File
 
 /**
@@ -91,32 +89,20 @@ class ExtensionManagerFactory(private val project: Project) {
 
     /**
      * Get extension path for configuration
-     * Priority: 1. User install directory (~/.run-vs-agent/plugins/)
-     *           2. Built-in plugin resources
+     * Only checks user install directory (~/.cometix/plugins/)
+     * No built-in extensions - user must install via VSIX
      */
     private fun getExtensionPath(config: ExtensionConfig): String? {
-        // First check user install directory (priority)
-        val userInstallPath = "${PluginConstants.ConfigFiles.getUserConfigDir()}/plugins/${config.codeDir}"
+        // Only check user install directory
+        val userInstallPath = "${VsixManager.getBaseDirectory()}/${config.codeDir}"
         if (File(userInstallPath).exists()) {
             LOG.info("Found extension path in user install directory: $userInstallPath")
             return userInstallPath
         }
 
-        // Then try PluginResourceUtil for built-in extensions
-        try {
-            val extensionPath = PluginResourceUtil.getResourcePath(
-                PluginConstants.PLUGIN_ID,
-                config.codeDir
-            )
-            if (extensionPath != null && File(extensionPath).exists()) {
-                LOG.info("Found extension path via PluginResourceUtil: $extensionPath")
-                return extensionPath
-            }
-        } catch (e: Exception) {
-            LOG.warn("Failed to get extension path via PluginResourceUtil for: ${config.codeDir}", e)
-        }
-
-        LOG.warn("Extension path not found for type: ${config.extensionType.code} (${config.codeDir})")
+        // Extension not installed - this is expected for first-time users
+        LOG.info("Extension not installed: ${config.extensionType.code} (${config.codeDir})")
+        LOG.info("Expected path: $userInstallPath")
         return null
     }
 
