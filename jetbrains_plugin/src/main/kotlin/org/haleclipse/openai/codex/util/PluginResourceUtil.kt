@@ -1,0 +1,115 @@
+// SPDX-FileCopyrightText: 2025 Weibo, Inc.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+package org.haleclipse.openai.codex.util
+
+import com.intellij.ide.plugins.IdeaPluginDescriptor
+import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.extensions.PluginId
+import org.haleclipse.openai.codex.plugin.DEBUG_MODE
+import org.haleclipse.openai.codex.plugin.WecoderPlugin
+import org.haleclipse.openai.codex.plugin.WecoderPluginService
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.Paths
+import kotlin.io.path.pathString
+
+/**
+ * Plugin resource utility class
+ * Used to obtain resource file paths in the plugin
+ */
+object PluginResourceUtil {
+    private val LOG = Logger.getInstance(PluginResourceUtil::class.java)
+
+    /**
+     * Get resource path
+     *
+     * @param pluginId Plugin ID
+     * @param resourceName Resource name
+     * @return Resource path, or null if failed to get
+     */
+    fun getResourcePath(pluginId: String, resourceName: String): String? {
+        return try {
+            if(WecoderPluginService.getDebugMode() == DEBUG_MODE.IDEA) {
+                // Debug mode: directly use plugin service to get resource path
+                return WecoderPluginService.getDebugResource() + "/$resourceName"
+            }
+            val plugin = PluginManagerCore.getPlugin(PluginId.getId(pluginId))
+                ?: throw IllegalStateException("Cannot find plugin: $pluginId")
+
+            // Determine whether it is development mode or production mode
+            val isDevMode = checkDevMode(plugin)
+
+            if (isDevMode) {
+                // Development mode: load from classpath or project resource directory
+                loadDevResource(resourceName, plugin)
+            } else {
+                // Production mode: load from plugin JAR or installation directory
+                loadProdResource(resourceName, plugin)
+            }
+        } catch (e: Exception) {
+            LOG.error("Failed to get plugin resource path: $resourceName", e)
+            null
+        }
+    }
+
+    /**
+     * Load resources in development mode
+     */
+    private fun loadDevResource(resourceName: String, plugin: IdeaPluginDescriptor): String {
+        val resourcePath = Paths.get(plugin.pluginPath.parent.parent.parent.parent.parent.pathString, "debug-resources/$resourceName")
+        return resourcePath.toString()
+    }
+
+    /**
+     * Load resources in production mode
+     */
+    private fun loadProdResource(resourceName: String, plugin: IdeaPluginDescriptor): String? {
+        // Load from plugin installation directory (compatible with old version)
+        val pluginDir = plugin.pluginPath.toFile()
+        val resourceDir = pluginDir.resolve(resourceName)
+        if (resourceDir.exists()) {
+            return resourceDir.absolutePath
+        }
+        return null
+    }
+
+    /**
+     * Check whether it is in development mode
+     */
+    private fun checkDevMode(plugin: IdeaPluginDescriptor): Boolean {
+        return try {
+            WecoderPluginService.getDebugMode() != DEBUG_MODE.NONE
+        }catch (e: Exception){
+            false
+        }
+    }
+
+    /**
+     * Extract resource from URL to temporary file
+     *
+     * @param resourceUrl Resource URL
+     * @param filename File name
+     * @return Temporary file path, or null if extraction fails
+     */
+    fun extractResourceToTempFile(resourceUrl: java.net.URL, filename: String): String? {
+        return try {
+            val tempFile = File.createTempFile("codex-", "-$filename")
+            tempFile.deleteOnExit()
+            
+            resourceUrl.openStream().use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            LOG.info("Resource extracted to temporary file: ${tempFile.absolutePath}")
+            tempFile.absolutePath
+        } catch (e: Exception) {
+            LOG.error("Failed to extract resource to temporary file: $filename", e)
+            null
+        }
+    }
+} 

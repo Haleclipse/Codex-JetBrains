@@ -70,10 +70,10 @@ SPDX-License-Identifier: Apache-2.0
     <!-- Extension points defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
     <extensions defaultExtensionNs="com.intellij">
-        <projectService serviceImplementation="com.sina.weibo.agent.plugin.WecoderPluginService"/>
-        <postStartupActivity implementation="com.sina.weibo.agent.plugin.WecoderPlugin"/>
-        <editorFactoryListener implementation="com.sina.weibo.agent.editor.EditorListener"/>
-        <toolWindow factoryClass="com.sina.weibo.agent.ui.RunVSAgentToolWindowFactory"
+        <projectService serviceImplementation="org.haleclipse.openai.codex.plugin.WecoderPluginService"/>
+        <postStartupActivity implementation="org.haleclipse.openai.codex.plugin.WecoderPlugin"/>
+        <editorFactoryListener implementation="org.haleclipse.openai.codex.editor.EditorListener"/>
+        <toolWindow factoryClass="org.haleclipse.openai.codex.ui.RunVSAgentToolWindowFactory"
                     id="Codex"
                     secondary="true"
                     icon="/icons/codex.svg"
@@ -83,25 +83,25 @@ SPDX-License-Identifier: Apache-2.0
     </extensions>
 
     <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
-        <localTerminalCustomizer implementation="com.sina.weibo.agent.terminal.WeCoderTerminalCustomizer"/>
+        <localTerminalCustomizer implementation="org.haleclipse.openai.codex.terminal.WeCoderTerminalCustomizer"/>
     </extensions>
 
     <actions>
         <!-- Dynamic toolbar group - buttons will be populated based on current extension -->
         <group id="CodexToolbarGroup">
             <group id="Codex.DynamicExtensionActions"
-                   class="com.sina.weibo.agent.extensions.ui.actions.DynamicExtensionActionsGroup"
+                   class="org.haleclipse.openai.codex.extensions.ui.actions.DynamicExtensionActionsGroup"
                    text="Extension Actions"
                    description="Dynamic extension-specific actions" />
             <action id="Codex.extensionStatusChecker"
                     icon="AllIcons.General.InspectionsOK"
-                    class="com.sina.weibo.agent.extensions.ui.actions.ExtensionStatusChecker"
+                    class="org.haleclipse.openai.codex.extensions.ui.actions.ExtensionStatusChecker"
                     text="Check Extension Status"
                     description="Check extension status and diagnose issues" />
         </group>
 
         <group id="Codex.RightClickMenu" text="Codex" description="Codex main menu" icon="/icons/codex.svg" popup="true">
-            <group id="Codex.RightClick.Chat" class="com.sina.weibo.agent.extensions.ui.contextmenu.DynamicExtensionContextMenuGroup"
+            <group id="Codex.RightClick.Chat" class="org.haleclipse.openai.codex.extensions.ui.contextmenu.DynamicExtensionContextMenuGroup"
                    text="Extension Actions" description="Dynamic extension-specific context menu actions"/>
             <add-to-group group-id="EditorPopupMenu" anchor="first"/>
         </group>
@@ -110,7 +110,7 @@ SPDX-License-Identifier: Apache-2.0
         <group id="Codex.MainMenu" text="Codex" description="Codex main menu">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
             <group id="Codex.MainMenu.DynamicExtensionActions"
-                   class="com.sina.weibo.agent.extensions.ui.actions.DynamicExtensionActionsGroup"
+                   class="org.haleclipse.openai.codex.extensions.ui.actions.DynamicExtensionActionsGroup"
                    text="Extension Actions"
                    description="Dynamic extension-specific actions" />
         </group>
