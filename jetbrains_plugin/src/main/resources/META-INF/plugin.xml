@@ -53,11 +53,12 @@ SPDX-License-Identifier: Apache-2.0
 
    <!-- Change notes for the plugin -->
    <change-notes><![CDATA[
-       <h3>Version 0.2.5</h3>
+       <h3>Version 0.3.9</h3>
         <ul>
-            <li>Initial Codex integration for JetBrains IDEs</li>
-            <li>OpenAI's coding agent with intelligent code generation</li>
+            <li>Rebrand to Codex (Cometix)</li>
             <li>Simplified single-extension architecture</li>
+            <li>User config directory changed to ~/.cometix</li>
+            <li>Auto-restart extension host after VSIX installation</li>
         </ul>
    ]]></change-notes>
 
