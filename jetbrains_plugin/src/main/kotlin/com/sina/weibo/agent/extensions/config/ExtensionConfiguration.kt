@@ -14,20 +14,20 @@ import com.sina.weibo.agent.util.PluginConstants
 import com.sina.weibo.agent.util.ConfigFileUtils
 
 /**
- * Extension configuration manager for Roo Code
- * Manages configuration for different extension types
+ * Extension configuration manager for Codex
+ * Manages configuration for the Codex extension
  */
 @Service(Service.Level.PROJECT)
 class ExtensionConfiguration(private val project: Project) {
     private val LOG = Logger.getInstance(ExtensionConfiguration::class.java)
-    
-    // Current active extension type
+
+    // Current active extension type (always CODEX)
     @Volatile
-    private var currentExtensionType: ExtensionType = ExtensionType.Companion.getDefault()
-    
+    private var currentExtensionType: ExtensionType = ExtensionType.CODEX
+
     // Extension configurations cache
     private val extensionConfigs = mutableMapOf<ExtensionType, ExtensionConfig>()
-    
+
     companion object {
         /**
          * Get extension configuration instance
@@ -37,55 +37,51 @@ class ExtensionConfiguration(private val project: Project) {
                 ?: error("ExtensionConfiguration not found")
         }
     }
-    
+
     /**
      * Initialize extension configuration
      */
     fun initialize() {
-        LOG.info("Initializing extension configuration")
-        
-        // Load configurations for all extension types
-        ExtensionType.Companion.getAllTypes().forEach { extensionType ->
-            loadConfiguration(extensionType)
-        }
-        
-        // Set current extension type from properties or use default
-        val configuredType = getConfiguredExtensionType()
-        currentExtensionType = configuredType ?: ExtensionType.Companion.getDefault()
-        
+        LOG.info("Initializing Codex extension configuration")
+
+        // Load configuration for CODEX
+        loadConfiguration(ExtensionType.CODEX)
+
+        // Always use CODEX
+        currentExtensionType = ExtensionType.CODEX
+
         LOG.info("Extension configuration initialized, current type: ${currentExtensionType.code}")
     }
-    
+
     /**
      * Get current active extension type
      */
     fun getCurrentExtensionType(): ExtensionType {
         return currentExtensionType
     }
-    
+
     /**
      * Set current active extension type
      */
     fun setCurrentExtensionType(extensionType: ExtensionType) {
-        LOG.info("Switching extension type from ${currentExtensionType.code} to ${extensionType.code}")
-        currentExtensionType = extensionType
-        saveCurrentExtensionType()
+        LOG.info("Extension type is fixed to CODEX")
+        currentExtensionType = ExtensionType.CODEX
     }
-    
+
     /**
      * Get configuration for current extension type
      */
     fun getCurrentConfig(): ExtensionConfig {
         return getConfig(currentExtensionType)
     }
-    
+
     /**
      * Get configuration for specific extension type
      */
     fun getConfig(extensionType: ExtensionType): ExtensionConfig {
         return extensionConfigs[extensionType] ?: ExtensionConfig.getDefault(extensionType)
     }
-    
+
     /**
      * Load configuration for specific extension type
      */
@@ -99,42 +95,10 @@ class ExtensionConfiguration(private val project: Project) {
             extensionConfigs[extensionType] = ExtensionConfig.getDefault(extensionType)
         }
     }
-    
-    /**
-     * Get configured extension type from properties
-     */
-    private fun getConfiguredExtensionType(): ExtensionType? {
-        return try {
-            val properties = ConfigFileUtils.loadMainConfig()
-            val typeCode = properties.getProperty(PluginConstants.ConfigFiles.EXTENSION_TYPE_KEY)
-            if (typeCode != null) {
-                ExtensionType.Companion.fromCode(typeCode)
-            } else null
-        } catch (e: Exception) {
-            LOG.warn("Failed to read extension type configuration", e)
-            null
-        }
-    }
-    
-    /**
-     * Save current extension type to properties
-     */
-    private fun saveCurrentExtensionType() {
-        try {
-            val properties = Properties()
-            properties.setProperty(PluginConstants.ConfigFiles.EXTENSION_TYPE_KEY, currentExtensionType.code)
-            
-            ConfigFileUtils.saveMainConfig(properties, "VSCode Agent Configuration")
-            
-            LOG.info("Saved extension type configuration: ${currentExtensionType.code}")
-        } catch (e: Exception) {
-            LOG.error("Failed to save extension type configuration", e)
-        }
-    }
 }
 
 /**
- * Extension configuration data class for Roo Code
+ * Extension configuration data class for Codex
  */
 data class ExtensionConfig(
     val extensionType: ExtensionType,
@@ -155,53 +119,14 @@ data class ExtensionConfig(
          */
         fun getDefault(extensionType: ExtensionType): ExtensionConfig {
             return when (extensionType) {
-                ExtensionType.ROO_CODE -> ExtensionConfig(
+                ExtensionType.CODEX -> ExtensionConfig(
                     extensionType = extensionType,
-                    codeDir = "roo-code",
-                    displayName = "Roo Code",
-                    description = "AI-powered code assistant",
-                    publisher = "WeCode-AI",
-                    version = "1.0.0",
-                    mainFile = "./dist/extension.js",
-                    activationEvents = listOf("onStartupFinished"),
-                    engines = mapOf("vscode" to "^1.0.0"),
-                    capabilities = emptyMap(),
-                    extensionDependencies = emptyList()
-                )
-                ExtensionType.CLINE -> ExtensionConfig(
-                    extensionType = extensionType,
-                    codeDir = "cline",
-                    displayName = "Cline",
-                    description = "AI-powered coding assistant with advanced features",
-                    publisher = "Cline-AI",
-                    version = "1.0.0",
-                    mainFile = "./dist/extension.js",
-                    activationEvents = listOf("onStartupFinished"),
-                    engines = mapOf("vscode" to "^1.0.0"),
-                    capabilities = emptyMap(),
-                    extensionDependencies = emptyList()
-                )
-                ExtensionType.KILO_CODE -> ExtensionConfig(
-                    extensionType = extensionType,
-                    codeDir = "kilo-code",
-                    displayName = "Kilo Code",
-                    description = "AI-powered code assistant with advanced capabilities",
-                    publisher = "Kilo-AI",
-                    version = "1.0.0",
-                    mainFile = "./dist/extension.js",
-                    activationEvents = listOf("onStartupFinished"),
-                    engines = mapOf("vscode" to "^1.0.0"),
-                    capabilities = emptyMap(),
-                    extensionDependencies = emptyList()
-                )
-                ExtensionType.COSTRICT -> ExtensionConfig(
-                    extensionType = extensionType,
-                    codeDir = "costrict",
-                    displayName = "Costrict",
-                    description = "AI-powered code assistant with advanced capabilities",
-                    publisher = "zgsm-ai",
-                    version = "1.6.5",
-                    mainFile = "./dist/extension.js",
+                    codeDir = "codex",
+                    displayName = "OpenAI Codex",
+                    description = "OpenAI Codex AI-powered code assistant",
+                    publisher = "openai",
+                    version = "0.4.56",
+                    mainFile = "./out/extension.js",
                     activationEvents = listOf("onStartupFinished"),
                     engines = mapOf("vscode" to "^1.0.0"),
                     capabilities = emptyMap(),
@@ -209,7 +134,7 @@ data class ExtensionConfig(
                 )
             }
         }
-        
+
         /**
          * Load configuration from properties file
          */
@@ -219,4 +144,4 @@ data class ExtensionConfig(
             return getDefault(extensionType)
         }
     }
-} 
+}

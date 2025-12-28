@@ -33,7 +33,7 @@ class RPCManager(
         setupDefaultProtocols()
         setupExtensionRequiredProtocols()
         setupWeCodeRequiredProtocols()
-        setupRooCodeFuncitonProtocols()
+        setupCodexFunctionProtocols()
         setupKiloCodeFunctionProtocols()
         setupWebviewProtocols()
     }
@@ -235,8 +235,8 @@ class RPCManager(
         rpcProtocol.set(ServiceProxyRegistry.MainContext.MainThreadMessageService, MainThreadMessageService())
     }
 
-    private fun setupRooCodeFuncitonProtocols() {
-        logger.info("Setting up protocol handlers required for RooCode specific functionality")
+    private fun setupCodexFunctionProtocols() {
+        logger.info("Setting up protocol handlers required for Codex specific functionality")
 
         // MainThreadFileSystemEventService
         rpcProtocol.set(
@@ -254,8 +254,12 @@ class RPCManager(
 
     private fun setupWebviewProtocols() {
         logger.info("Setting up protocol handlers required for Webview")
-        // MainThreadWebviews
+        // MainThreadWebviews (sidebar views)
         rpcProtocol.set(ServiceProxyRegistry.MainContext.MainThreadWebviews, MainThreadWebviews(project))
+        // MainThreadWebviewPanels (editor tab panels, used by CustomEditors)
+        rpcProtocol.set(ServiceProxyRegistry.MainContext.MainThreadWebviewPanels, MainThreadWebviewPanels())
+        // MainThreadCustomEditors (stub for Codex conversation editor)
+        rpcProtocol.set(ServiceProxyRegistry.MainContext.MainThreadCustomEditors, MainThreadCustomEditors())
     }
 
     /**

@@ -13,7 +13,6 @@ coverage/
 
 # Builds
 bin/
-roo-cline-*.vsix
 
 # Local prompts and rules
 /local-prompts
@@ -47,12 +46,15 @@ logs
 
 # vscode import
 extension_host/vscode/*
-deps/roo-code/*
 deps/vscode/*
-!deps/roo-code/.git
+deps/codex/*
 !deps/vscode/.git
 jetbrains_plugin/plugins
 jetbrains_plugin/build
 .gradle
 deps/vsix/package/*
 deps/vsix/plugin/*
+
+# Claude Code
+.claude/
+.mcp.json

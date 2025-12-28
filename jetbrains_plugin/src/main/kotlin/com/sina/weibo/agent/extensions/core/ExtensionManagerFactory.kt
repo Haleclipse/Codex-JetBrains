@@ -91,9 +91,18 @@ class ExtensionManagerFactory(private val project: Project) {
 
     /**
      * Get extension path for configuration
+     * Priority: 1. User install directory (~/.run-vs-agent/plugins/)
+     *           2. Built-in plugin resources
      */
     private fun getExtensionPath(config: ExtensionConfig): String? {
-        // Use PluginResourceUtil to get extension path (this is the correct way)
+        // First check user install directory (priority)
+        val userInstallPath = "${PluginConstants.ConfigFiles.getUserConfigDir()}/plugins/${config.codeDir}"
+        if (File(userInstallPath).exists()) {
+            LOG.info("Found extension path in user install directory: $userInstallPath")
+            return userInstallPath
+        }
+
+        // Then try PluginResourceUtil for built-in extensions
         try {
             val extensionPath = PluginResourceUtil.getResourcePath(
                 PluginConstants.PLUGIN_ID,

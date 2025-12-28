@@ -108,8 +108,11 @@ class ExtensionHostManager : Disposable {
             val extensionPath = getExtensionPath(extensionConfig)
             
             if (extensionPath != null && File(extensionPath).exists()) {
-                            // Register extension using configuration
-            val extensionDesc = extensionManager!!.registerExtension(extensionPath, extensionConfig)
+                // Fix executable permissions for CLI binaries before registration
+                fixExecutablePermissions(extensionPath)
+
+                // Register extension using configuration
+                val extensionDesc = extensionManager!!.registerExtension(extensionPath, extensionConfig)
                 extensionIdentifier = extensionDesc.identifier.value
                 LOG.info("Registered extension: ${currentExtensionProvider!!.getExtensionId()}")
             } else {
@@ -272,8 +275,8 @@ class ExtensionHostManager : Disposable {
                 "appLanguage" to "en",
                 "appUriScheme" to "vscode",
                 "appRoot" to uriFromPath(pluginDir),
-                "globalStorageHome" to uriFromPath(Paths.get(System.getProperty("user.home"),".roo-cline", "globalStorage").toString()),
-                "workspaceStorageHome" to uriFromPath(Paths.get(System.getProperty("user.home"),".roo-cline", "workspaceStorage").toString()),
+                "globalStorageHome" to uriFromPath(Paths.get(System.getProperty("user.home"),".codex", "globalStorage").toString()),
+                "workspaceStorageHome" to uriFromPath(Paths.get(System.getProperty("user.home"),".codex", "workspaceStorage").toString()),
                 "extensionDevelopmentLocationURI" to null,
                 "extensionTestsLocationURI" to null,
                 "useHostProxy" to false,
@@ -413,7 +416,37 @@ class ExtensionHostManager : Disposable {
         LOG.info("Using default extension path: $defaultPath")
         return defaultPath
     }
-    
+
+    /**
+     * Fix executable permissions for CLI binaries in extension bin directory.
+     * This is needed because files copied/extracted may lose executable permissions.
+     */
+    private fun fixExecutablePermissions(extensionPath: String) {
+        try {
+            val binDir = File(extensionPath, "bin")
+            if (!binDir.exists() || !binDir.isDirectory) {
+                LOG.debug("No bin directory found in extension path: $extensionPath")
+                return
+            }
+
+            LOG.info("Fixing executable permissions in: ${binDir.absolutePath}")
+
+            // Walk through all files in bin directory and subdirectories
+            binDir.walkTopDown().forEach { file ->
+                if (file.isFile && !file.canExecute()) {
+                    val success = file.setExecutable(true, false)
+                    if (success) {
+                        LOG.info("Set executable permission for: ${file.name}")
+                    } else {
+                        LOG.warn("Failed to set executable permission for: ${file.absolutePath}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LOG.warn("Failed to fix executable permissions: ${e.message}", e)
+        }
+    }
+
     /**
      * Create URI object.
      */

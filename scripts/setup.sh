@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Setup script for RunVSAgent project
+# Setup script for Codex-JetBrains project
 # This script initializes the development environment and dependencies
 
 set -euo pipefail
@@ -23,20 +23,20 @@ APPLY_PATCHES=true
 # Show help for this script
 show_help() {
     cat << EOF
-$SCRIPT_NAME - Setup development environment for RunVSAgent
+$SCRIPT_NAME - Setup development environment for Codex-JetBrains
 
 USAGE:
     $SCRIPT_NAME [OPTIONS]
 
 DESCRIPTION:
-    DESCRIPTION:
-        This script initializes the development environment by:
-        - Validating system requirements (including Git LFS)
-        - Setting up Git LFS for large file handling
-        - Initializing git submodules
-        - Installing project dependencies
-        - Applying necessary patches
-        - Setting up build environment
+    This script initializes the development environment by:
+    - Validating system requirements (including Git LFS)
+    - Setting up Git LFS for large file handling
+    - Initializing git submodules
+    - Installing project dependencies
+    - Copying VSCode source files
+    - Setting up build environment
+
 OPTIONS:
     -f, --force           Force reinstall of dependencies
     -s, --skip-submodules Skip git submodule initialization
@@ -86,10 +86,6 @@ parse_setup_args() {
                 SKIP_DEPENDENCIES=true
                 shift
                 ;;
-            -p|--no-patches)
-                APPLY_PATCHES=false
-                shift
-                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -114,16 +110,16 @@ parse_setup_args() {
 # Validate system requirements
 validate_system_requirements() {
     log_step "Validating system requirements..."
-    
+
     # Skip validation if requested
     if [[ "${SKIP_VALIDATION:-false}" == "true" ]]; then
         log_warn "Skipping environment validation (SKIP_VALIDATION=true)"
         return 0
     fi
-    
+
     # Validate basic environment
     validate_environment
-    
+
     # Check for additional development tools
     local dev_tools=("git" "unzip" "curl")
     for tool in "${dev_tools[@]}"; do
@@ -132,22 +128,22 @@ validate_system_requirements() {
         fi
         log_debug "Found development tool: $tool"
     done
-    
+
     # Check for Git LFS
     if ! command_exists "git-lfs"; then
         die "Git LFS not found. Please install Git LFS: https://git-lfs.github.io/" 2
     fi
     log_debug "Found Git LFS"
-    
+
     # Check Git configuration
     if ! git config user.name >/dev/null 2>&1; then
         log_warn "Git user.name not configured. Run: git config --global user.name 'Your Name'"
     fi
-    
+
     if ! git config user.email >/dev/null 2>&1; then
         log_warn "Git user.email not configured. Run: git config --global user.email 'your.email@example.com'"
     fi
-    
+
     # Check available disk space (at least 2GB)
     local available_space
     if is_macos; then
@@ -155,20 +151,20 @@ validate_system_requirements() {
     else
         available_space=$(df -BG "$PROJECT_ROOT" | awk 'NR==2 {print $4}' | sed 's/G//')
     fi
-    
+
     if [[ "$available_space" -lt 2 ]]; then
         log_warn "Low disk space: ${available_space}GB available. At least 2GB recommended."
     fi
-    
+
     log_success "System requirements validated"
 }
 
 # Initialize Git LFS
 setup_git_lfs() {
     log_step "Setting up Git LFS..."
-    
+
     cd "$PROJECT_ROOT"
-    
+
     # Check if Git LFS is already initialized
     if git lfs env >/dev/null 2>&1; then
         log_debug "Git LFS environment already configured"
@@ -176,18 +172,18 @@ setup_git_lfs() {
         log_info "Initializing Git LFS..."
         execute_cmd "git lfs install" "Git LFS installation"
     fi
-    
+
     # Check if .gitattributes exists and has LFS entries
     if [[ -f ".gitattributes" ]]; then
         local lfs_files
         lfs_files=$(grep -c "filter=lfs" .gitattributes 2>/dev/null || echo "0")
         if [[ "$lfs_files" -gt 0 ]]; then
             log_info "Found $lfs_files LFS file pattern(s) in .gitattributes"
-            
+
             # Pull LFS files
             log_info "Pulling LFS files..."
             execute_cmd "git lfs pull" "Git LFS pull"
-            
+
             # Verify LFS files
             log_info "Verifying LFS files..."
             if git lfs ls-files >/dev/null 2>&1; then
@@ -208,7 +204,7 @@ setup_git_lfs() {
     else
         log_warn "No .gitattributes file found, skipping LFS file pull"
     fi
-    
+
     log_success "Git LFS setup completed"
 }
 
@@ -218,26 +214,26 @@ setup_submodules() {
         log_info "Skipping git submodule initialization"
         return 0
     fi
-    
+
     log_step "Setting up git submodules..."
-    
+
     cd "$PROJECT_ROOT"
-    
+
     # Check if .gitmodules exists
     if [[ ! -f ".gitmodules" ]]; then
         log_warn "No .gitmodules file found, skipping submodule setup"
         return 0
     fi
-    
+
     # Initialize and update submodules
     if [[ "$FORCE_REINSTALL" == "true" ]]; then
         log_info "Force reinstalling submodules..."
         execute_cmd "git submodule deinit --all -f" "submodule deinit"
     fi
-    
+
     execute_cmd "git submodule init" "submodule init"
     execute_cmd "git submodule update --recursive" "submodule update"
-    
+
     # Switch to development branch if specified
     local vscode_dir="$PROJECT_ROOT/$VSCODE_SUBMODULE_PATH"
     if [[ -d "$vscode_dir" ]]; then
@@ -250,7 +246,7 @@ setup_submodules() {
             log_warn "Branch $VSCODE_BRANCH not found, staying on current branch"
         fi
     fi
-    
+
     log_success "Git submodules set up"
 }
 
@@ -260,43 +256,30 @@ install_dependencies() {
         log_info "Skipping dependency installation"
         return 0
     fi
-    
+
     log_step "Installing project dependencies..."
-    
+
     # Install extension host dependencies
     if [[ -d "$PROJECT_ROOT/$EXTENSION_HOST_DIR" && -f "$PROJECT_ROOT/$EXTENSION_HOST_DIR/package.json" ]]; then
         log_info "Installing extension host dependencies..."
         cd "$PROJECT_ROOT/$EXTENSION_HOST_DIR"
-        
+
         if [[ "$FORCE_REINSTALL" == "true" ]]; then
             remove_dir "node_modules"
             [[ -f "package-lock.json" ]] && rm -f "package-lock.json"
         fi
-        
+
         execute_cmd "npm install" "extension host dependencies installation"
     fi
-    
-    # Install VSCode extension dependencies
-    local vscode_dir="$PROJECT_ROOT/$PLUGIN_SUBMODULE_PATH"
-    if [[ -d "$vscode_dir" && -f "$vscode_dir/package.json" ]]; then
-        log_info "Installing VSCode extension dependencies..."
-        cd "$vscode_dir"
-        
-        if [[ "$FORCE_REINSTALL" == "true" ]]; then
-            remove_dir "node_modules"
-            [[ -f "package-lock.json" ]] && rm -f "package-lock.json"
-            [[ -f "pnpm-lock.yaml" ]] && rm -f "pnpm-lock.yaml"
-        fi
-        
-        # Use pnpm if available and lock file exists
-        local pkg_manager="npm"
-        if command_exists "pnpm" && [[ -f "pnpm-lock.yaml" ]]; then
-            pkg_manager="pnpm"
-        fi
-        
-        execute_cmd "$pkg_manager install" "VSCode extension dependencies installation"
+
+    # Codex extension is pre-built, no need to install dependencies
+    local codex_dir="$PROJECT_ROOT/$PLUGIN_SUBMODULE_PATH"
+    if [[ -d "$codex_dir" ]]; then
+        log_info "Codex extension found at: $codex_dir (pre-built, no dependencies to install)"
+    else
+        log_warn "Codex extension not found at: $codex_dir"
     fi
-    
+
     log_success "Dependencies installed"
 }
 
@@ -306,32 +289,32 @@ apply_patches() {
         log_info "Skipping patch application"
         return 0
     fi
-    
+
     log_step "Applying project patches..."
-    
+
     local patch_file="$PROJECT_ROOT/$PATCH_FILE"
     if [[ ! -f "$patch_file" ]]; then
         log_warn "Patch file not found: $patch_file"
         return 0
     fi
-    
+
     # Use deps/vscode as the source directory (like init.sh)
     local vscode_source_dir="$PROJECT_ROOT/deps/vscode"
     local vscode_target_dir="$PROJECT_ROOT/$EXTENSION_HOST_DIR/vscode"
-    
+
     if [[ ! -d "$vscode_source_dir" ]]; then
         log_warn "VSCode source directory not found: $vscode_source_dir"
         return 0
     fi
-    
+
     cd "$vscode_source_dir"
     execute_cmd "git clean -dfx && git reset --hard" "reset VSCode source"
- 
+
     # Check if patch can be applied
     if git apply --check "$patch_file" 2>/dev/null; then
         log_info "Applying patch to VSCode source..."
         execute_cmd "git apply '$patch_file'" "patch application"
-        
+
         # Copy src/* to target directory (exactly like init.sh)
         log_info "Copying src/* to $vscode_target_dir..."
         # Use the same logic as init.sh: mkdir -p $TARGET_DIR || rm -rf "$TARGET_DIR"/*
@@ -340,25 +323,25 @@ apply_patches() {
         else
             rm -rf "$vscode_target_dir"/*
         fi
-        
+
         if [[ -d "$vscode_source_dir/src" ]]; then
             execute_cmd "cp -r src/* '$vscode_target_dir/'" "VSCode files copy"
         else
             log_error "VSCode src directory not found in $vscode_source_dir"
             exit 4
         fi
-        
+
         # Reset the source repository (like init.sh)
         log_info "Resetting VSCode source repository..."
         execute_cmd "git reset --hard" "git reset"
         execute_cmd "git clean -fd" "git clean"
-        
+
         log_success "Patch applied and VSCode files copied successfully"
     else
         # Check if patch is already applied
         if git apply --reverse --check "$patch_file" 2>/dev/null; then
             log_info "Patch appears to already be applied, copying files..."
-            
+
             # Still copy the files even if patch is already applied
             # Use the same logic as init.sh: mkdir -p $TARGET_DIR || rm -rf "$TARGET_DIR"/*
             if [[ ! -d "$vscode_target_dir" ]]; then
@@ -366,7 +349,7 @@ apply_patches() {
             else
                 rm -rf "$vscode_target_dir"/*
             fi
-            
+
             if [[ -d "$vscode_source_dir/src" ]]; then
                 execute_cmd "cp -r src/* '$vscode_target_dir/'" "VSCode files copy"
                 log_success "VSCode files copied successfully"
@@ -385,28 +368,28 @@ apply_patches() {
 # Setup development environment
 setup_dev_environment() {
     log_step "Setting up development environment..."
-    
+
     # Create necessary directories
     local dirs_to_create=(
         "$PROJECT_ROOT/logs"
         "$PROJECT_ROOT/tmp"
         "$PROJECT_ROOT/build"
     )
-    
+
     for dir in "${dirs_to_create[@]}"; do
         ensure_dir "$dir"
     done
-    
+
     # Set up Git hooks if they exist
     local hooks_dir="$PROJECT_ROOT/.githooks"
     if [[ -d "$hooks_dir" ]]; then
         log_info "Setting up Git hooks..."
         execute_cmd "git config core.hooksPath .githooks" "Git hooks setup"
-        
+
         # Make hooks executable
         find "$hooks_dir" -type f -exec chmod +x {} \;
     fi
-    
+
     # Create environment file template if it doesn't exist
     local env_file="$PROJECT_ROOT/.env.local"
     if [[ ! -f "$env_file" ]]; then
@@ -429,77 +412,77 @@ setup_dev_environment() {
 EOF
         log_info "Created $env_file - customize as needed"
     fi
-    
+
     log_success "Development environment set up"
 }
 
 # Verify setup
 verify_setup() {
     log_step "Verifying setup..."
-    
+
     local errors=0
-    
+
     # Check critical directories
     local critical_dirs=(
         "$PROJECT_ROOT/$EXTENSION_HOST_DIR"
         "$PROJECT_ROOT/$IDEA_DIR"
     )
-    
+
     for dir in "${critical_dirs[@]}"; do
         if [[ ! -d "$dir" ]]; then
             log_error "Critical directory missing: $dir"
             ((errors++))
         fi
     done
-    
+
     # Check for VSCode submodule
     local vscode_dir="$PROJECT_ROOT/$VSCODE_SUBMODULE_PATH"
     if [[ ! -d "$vscode_dir" ]] || [[ ! "$(ls -A "$vscode_dir" 2>/dev/null)" ]]; then
         log_error "VSCode submodule not properly initialized: $vscode_dir"
         ((errors++))
     fi
-    
+
     # Check for package.json files
     local package_files=(
         "$PROJECT_ROOT/$EXTENSION_HOST_DIR/package.json"
     )
-    
+
     for file in "${package_files[@]}"; do
         if [[ ! -f "$file" ]]; then
             log_error "Package file missing: $file"
             ((errors++))
         fi
     done
-    
+
     # Check for build tools
     if [[ -d "$PROJECT_ROOT/$IDEA_DIR" ]]; then
         if [[ ! -f "$PROJECT_ROOT/$IDEA_DIR/build.gradle" && ! -f "$PROJECT_ROOT/$IDEA_DIR/build.gradle.kts" ]]; then
             log_warn "No Gradle build file found in IDEA directory"
         fi
     fi
-    
+
     if [[ $errors -gt 0 ]]; then
         log_error "Setup verification failed with $errors errors"
         exit 3
     fi
-    
+
     log_success "Setup verification passed"
 }
 
 # Main setup function
 main() {
-    log_info "Starting RunVSAgent development environment setup..."
+    log_info "Starting Codex-JetBrains development environment setup..."
     log_info "Script: $SCRIPT_NAME v$SCRIPT_VERSION"
     log_info "Platform: $(get_platform)"
     log_info "Project root: $PROJECT_ROOT"
-    
+
     if [[ "$DRY_RUN" == "true" ]]; then
         log_warn "DRY RUN MODE - No changes will be made"
     fi
-    
+
     # Parse arguments
     parse_setup_args "$@"
-    
+
     # Run setup steps
     validate_system_requirements
     setup_git_lfs
@@ -508,13 +491,13 @@ main() {
     apply_patches
     setup_dev_environment
     verify_setup
-    
+
     log_success "Setup completed successfully!"
     log_info ""
     log_info "Next steps:"
     log_info "  1. Run './scripts/build.sh' to build the project"
     log_info "  2. Run './scripts/build.sh --help' for build options"
-    log_info "  3. Check the generated files in the idea/ directory"
+    log_info "  3. Check the generated files in the jetbrains_plugin/ directory"
     log_info ""
     log_info "For more information, see the project documentation."
 }

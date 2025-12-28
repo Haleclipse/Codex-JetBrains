@@ -1,6 +1,3 @@
-[submodule "deps/roo-code"]
-	path = deps/roo-code
-	url = https://github.com/RooCodeInc/Roo-Code.git
 [submodule "deps/vscode"]
 	path = deps/vscode
 	url = https://github.com/microsoft/vscode.git

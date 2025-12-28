@@ -63,20 +63,24 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
     // Latest created WebView instance
     @Volatile
     private var latestWebView: WebViewInstance? = null
-    
+
     // Store WebView creation callbacks
     private val creationCallbacks = mutableListOf<WebViewCreationCallback>()
 
-    // Resource root directory path
+    // Resource root directory path (original extension directory, read-only)
     @Volatile
     private var resourceRootDir: Path? = null
-    
+
+    // Temporary directory for processed HTML files (writable)
+    @Volatile
+    private var tempHtmlDir: Path? = null
+
     // Current theme configuration
     private var currentThemeConfig: JsonObject? = null
-    
+
     // Current theme type
     private var isDarkTheme: Boolean = true
-    
+
     // Prevent repeated dispose
     private var isDisposed = false
     private var themeInitialized = false
@@ -87,14 +91,14 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
      */
     fun initializeThemeManager(resourceRoot: String) {
         if (isDisposed or themeInitialized) return
-        
+
         logger.info("Initialize theme manager")
         val themeManager = ThemeManager.getInstance()
         themeManager.initialize(resourceRoot)
         themeManager.addThemeChangeListener(this)
         themeInitialized = true
     }
-    
+
     /**
      * Implement ThemeChangeListener interface, handle theme change events
      */
@@ -102,17 +106,17 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
         logger.info("Received theme change event, isDarkTheme: $isDarkTheme, config: ${themeConfig.size()}")
         this.currentThemeConfig = themeConfig
         this.isDarkTheme = isDarkTheme
-        
+
         // Send theme config to all WebView instances
         sendThemeConfigToWebViews(themeConfig)
     }
-    
+
     /**
      * Send theme config to all WebView instances
      */
     private fun sendThemeConfigToWebViews(themeConfig: JsonObject) {
         logger.info("Send theme config to WebView")
-        
+
 //        getAllWebViews().forEach { webView ->
             try {
                 getLatestWebView()?.sendThemeConfigToWebView(themeConfig)
@@ -121,24 +125,29 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
             }
 //        }
     }
-    
+
+    // Puppet HTML filename (injected version, keeps original index.html untouched)
+    private val PUPPET_HTML_FILENAME = "_index.html"
+
     /**
-     * Save HTML content to resource directory
+     * Save HTML content to resource directory as puppet file
+     * Original index.html remains untouched, using _index.html instead
      * @param html HTML content
-     * @param filename File name
+     * @param filename Original filename (ignored, always uses PUPPET_HTML_FILENAME)
      * @return Saved file path
      */
     private fun saveHtmlToResourceDir(html: String, filename: String): Path? {
-        if( resourceRootDir == null || !resourceRootDir!!.exists() ) {
+        if (resourceRootDir == null || !resourceRootDir!!.exists()) {
             logger.warn("Resource root directory does not exist, cannot save HTML content")
             throw IOException("Resource root directory does not exist")
         }
-        
-        val filePath = resourceRootDir?.resolve(filename)
-        
+
+        // Always use puppet filename to avoid overwriting original index.html
+        val filePath = resourceRootDir?.resolve(PUPPET_HTML_FILENAME)
+
         try {
             if (filePath != null) {
-                logger.info("HTML content saved to: $filePath")
+                logger.info("HTML content saved as puppet file: $filePath")
                 Files.write(filePath, html.toByteArray(StandardCharsets.UTF_8))
                 return filePath
             }
@@ -148,7 +157,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
             throw e
         }
     }
-    
+
     /**
      * Register WebView creation callback
      * @param callback Callback object
@@ -157,7 +166,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
     fun addCreationCallback(callback: WebViewCreationCallback, disposable: Disposable? = null) {
         synchronized(creationCallbacks) {
             creationCallbacks.add(callback)
-            
+
             // If Disposable is provided, automatically remove callback when disposed
             if (disposable != null) {
                 Disposer.register(disposable, Disposable {
@@ -165,7 +174,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
                 })
             }
         }
-        
+
         // If there is already a latest created WebView, notify immediately
         latestWebView?.let { webview ->
             ApplicationManager.getApplication().invokeLater {
@@ -173,7 +182,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
             }
         }
     }
-    
+
     /**
      * Remove WebView creation callback
      * @param callback Callback object to remove
@@ -183,7 +192,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
             creationCallbacks.remove(callback)
         }
     }
-    
+
     /**
      * Notify all callbacks that WebView has been created
      * @param instance Created WebView instance
@@ -192,7 +201,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
         val callbacks = synchronized(creationCallbacks) {
             creationCallbacks.toList() // Create a copy to avoid concurrent modification
         }
-        
+
         // Safely call callbacks in UI thread
         ApplicationManager.getApplication().invokeLater {
             callbacks.forEach { callback ->
@@ -204,36 +213,44 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
             }
         }
     }
-    
+
     /**
      * Register WebView provider and create WebView instance
      */
     fun registerProvider(data: WebviewViewProviderData) {
         logger.info("Register WebView provider and create WebView instance: ${data.viewType}")
         val extension = data.extension
-        
+
         // Get location info from extension and set resource root directory
         try {
             @Suppress("UNCHECKED_CAST")
             val location = extension?.get("location") as? Map<String, Any?>
             val fsPath = location?.get("fsPath") as? String
-            
-            if (fsPath != null) {
-                // Set resource root directory
-                val path = Paths.get(fsPath)
-                logger.info("Get resource directory path from extension: $path")
-                
-                // Ensure the resource directory exists
-                if (!path.exists()) {
-                    path.createDirectories()
-                }
-                
-                 // Update resource root directory
-                resourceRootDir = path
-                
-                // Initialize theme manager
-                initializeThemeManager(fsPath)
 
+            if (fsPath != null) {
+                // Codex 扩展的资源在 webview/ 子目录
+                val basePath = Paths.get(fsPath)
+                val webviewPath = basePath.resolve("webview")
+
+                // 优先使用 webview/ 子目录，如果不存在则使用根目录
+                val resourcePath = if (webviewPath.exists()) {
+                    logger.info("Using webview subdirectory for Codex resources: $webviewPath")
+                    webviewPath
+                } else {
+                    logger.info("Webview subdirectory not found, using extension root: $basePath")
+                    basePath
+                }
+
+                // 确保资源目录存在
+                if (!resourcePath.exists()) {
+                    resourcePath.createDirectories()
+                }
+
+                // 更新资源根目录
+                resourceRootDir = resourcePath
+
+                // 初始化主题管理器
+                initializeThemeManager(fsPath)
             }
         } catch (e: Exception) {
             logger.error("Failed to get resource directory from extension", e)
@@ -249,7 +266,7 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
 
         val title = data.options["title"] as? String ?: data.viewType
         val state = data.options["state"] as? Map<String, Any?> ?: emptyMap()
-        
+
         val webview = WebViewInstance(data.viewType, viewId, title, state,project,data.extension)
 
         val proxy = protocol.getProxy(ServiceProxyRegistry.ExtHostContext.ExtHostWebviewViews)
@@ -258,13 +275,13 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
 
         // Set as the latest created WebView
         latestWebView = webview
-        
+
         logger.info("Create WebView instance: viewType=${data.viewType}, viewId=$viewId")
 
         // Notify callback
         notifyWebViewCreated(webview)
     }
-    
+
     /**
          * Get the latest created WebView instance
          */
@@ -273,91 +290,111 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
     }
 
     /**
-         * Update the HTML content of the WebView
-         * @param data HTML update data
-         */
+     * Update the HTML content of the WebView
+     * @param data HTML update data
+     */
     fun updateWebViewHtml(data: WebviewHtmlUpdateData) {
         val encodedState = getLatestWebView()?.state.toString().replace("\"", "\\\"")
-        // Support both <script nonce="..."> and <script type="text/javascript" nonce="..."> formats
-        val mRst = """<script(?:\s+type="text/javascript")?\s+nonce="([A-Za-z0-9]{32})">""".toRegex().find(data.htmlContent)
-        val str = mRst?.value ?: ""
-        data.htmlContent = data.htmlContent.replace(str,"""
-                        ${str}
-                        // First define the function to send messages
-                        window.sendMessageToPlugin = function(message) {
-                            // Convert JS object to JSON string
-                            // console.log("sendMessageToPlugin: ", message);
-                            const msgStr = JSON.stringify(message);
-                            ${getLatestWebView()?.jsQuery?.inject("msgStr")}
-                        };
-                        
-                        // Inject VSCode API mock
-                        globalThis.acquireVsCodeApi = (function() {
-                            let acquired = false;
-                        
-                            let state = JSON.parse('${encodedState}');
-                        
-                            if (typeof window !== "undefined" && !window.receiveMessageFromPlugin) {
-                                console.log("VSCodeAPIWrapper: Setting up receiveMessageFromPlugin for IDEA plugin compatibility");
-                                window.receiveMessageFromPlugin = (message) => {
-                                    // console.log("receiveMessageFromPlugin received message:", JSON.stringify(message));
-                                    // Create a new MessageEvent and dispatch it to maintain compatibility with existing code
-                                    const event = new MessageEvent("message", {
-                                        data: message,
-                                    });
-                                    window.dispatchEvent(event);
-                                };
-                            }
-                        
-                            return () => {
-                                if (acquired) {
-                                    throw new Error('An instance of the VS Code API has already been acquired');
-                                }
-                                acquired = true;
-                                return Object.freeze({
-                                    postMessage: function(message, transfer) {
-                                        // console.log("postMessage: ", message);
-                                        window.sendMessageToPlugin(message);
-                                    },
-                                    setState: function(newState) {
-                                        state = newState;
-                                        window.sendMessageToPlugin(newState);
-                                        return newState;
-                                    },
-                                    getState: function() {
-                                        return state;
-                                    }
-                                });
-                            };
-                        })();
-                        
-                        // Clean up references to window parent for security
-                        delete window.parent;
-                        delete window.top;
-                        delete window.frameElement;
-                        
-                        console.log("VSCode API mock injected");
-                        """)
+
+        // 修改 CSP 规则，添加 'unsafe-inline' 以允许注入的脚本执行
+        // 匹配 script-src 指令并添加 'unsafe-inline'
+        val cspPattern = """(script-src\s+)([^;]+)(;|"|$)""".toRegex()
+        data.htmlContent = data.htmlContent.replace(cspPattern) { match ->
+            val prefix = match.groupValues[1]
+            val sources = match.groupValues[2]
+            val suffix = match.groupValues[3]
+            if (sources.contains("'unsafe-inline'")) {
+                match.value // 已经包含，不修改
+            } else {
+                "$prefix'unsafe-inline' $sources$suffix"
+            }
+        }
+        logger.info("CSP rule modified to allow unsafe-inline scripts")
+
+        // 修改 <base> 标签，使用本地 HTTP 服务器地址
+        // Codex 扩展使用 vscode-webview:// URI，需要替换为我们的 HTTP 服务器地址
+        val baseTagPattern = """<base\s+href="[^"]*"\s*/?>""".toRegex()
+        data.htmlContent = data.htmlContent.replace(baseTagPattern, """<base href="/">""")
+        logger.info("Base tag modified to use local HTTP server")
+
+        // 构建 VSCode API mock 注入脚本
+        val injectionScript = """
+            <script>
+            // 定义消息发送函数
+            window.sendMessageToPlugin = function(message) {
+                const msgStr = JSON.stringify(message);
+                ${getLatestWebView()?.jsQuery?.inject("msgStr")}
+            };
+
+            // 注入 VSCode API mock
+            globalThis.acquireVsCodeApi = (function() {
+                let acquired = false;
+                let state = JSON.parse('${encodedState}');
+
+                if (typeof window !== "undefined" && !window.receiveMessageFromPlugin) {
+                    console.log("VSCodeAPIWrapper: Setting up receiveMessageFromPlugin for JetBrains plugin compatibility");
+                    window.receiveMessageFromPlugin = (message) => {
+                        const event = new MessageEvent("message", {
+                            data: message,
+                        });
+                        window.dispatchEvent(event);
+                    };
+                }
+
+                return () => {
+                    if (acquired) {
+                        throw new Error('An instance of the VS Code API has already been acquired');
+                    }
+                    acquired = true;
+                    return Object.freeze({
+                        postMessage: function(message, transfer) {
+                            window.sendMessageToPlugin(message);
+                        },
+                        setState: function(newState) {
+                            state = newState;
+                            window.sendMessageToPlugin(newState);
+                            return newState;
+                        },
+                        getState: function() {
+                            return state;
+                        }
+                    });
+                };
+            })();
+
+            // 清理 window parent 引用以增强安全性
+            delete window.parent;
+            delete window.top;
+            delete window.frameElement;
+
+            console.log("VSCode API mock injected for Codex");
+            </script>
+        """.trimIndent()
+
+        // 在 </head> 前注入脚本（适配 Codex 的 HTML 结构）
+        data.htmlContent = if (data.htmlContent.contains("</head>")) {
+            data.htmlContent.replace("</head>", "$injectionScript\n</head>")
+        } else {
+            // 如果没有 </head>，在开头添加
+            "$injectionScript\n${data.htmlContent}"
+        }
 
 
 
         logger.info("Received HTML update event: handle=${data.handle}, html length: ${data.htmlContent.length}")
-        
+
         val webView = getLatestWebView()
-        
+
         if (webView != null) {
             try {
                 // If HTTP server is running
-                if ( resourceRootDir != null) {
-                    // Generate unique file name for WebView
-                    val filename = "index.html"
+                if (resourceRootDir != null) {
+                    // Save HTML content as puppet file (_index.html)
+                    saveHtmlToResourceDir(data.htmlContent, PUPPET_HTML_FILENAME)
 
-                    // Save HTML content to file
-                    saveHtmlToResourceDir(data.htmlContent, filename)
-
-                    // Use HTTP URL to load WebView content
-                    val url = "http://localhost:12345/$filename"
-                    logger.info("Load WebView HTML content via HTTP: $url")
+                    // Use HTTP URL to load puppet WebView content
+                    val url = "http://localhost:12345/$PUPPET_HTML_FILENAME"
+                    logger.info("Load WebView HTML content via HTTP (puppet): $url")
 
                     webView.loadUrl(url)
                 } else {
@@ -389,14 +426,14 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
         }
     }
 
-    
+
     override fun dispose() {
         if (isDisposed) {
             logger.info("WebViewManager has already been disposed, ignoring repeated call")
             return
         }
         isDisposed = true
-        
+
         logger.info("Releasing WebViewManager resources...")
 
         // Remove listener from theme manager
@@ -405,26 +442,26 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
         } catch (e: Exception) {
             logger.error("Failed to remove listener from theme manager", e)
         }
-        
-        // Clean up resource directory
+
+        // Clean up puppet HTML file (original index.html remains untouched)
         try {
-            // Only delete index.html file, keep other files
             resourceRootDir?.let {
-                val indexFile = it.resolve("index.html").toFile()
-                if (indexFile.exists() && indexFile.isFile) {
-                    val deleted = indexFile.delete()
+                val puppetFile = it.resolve(PUPPET_HTML_FILENAME).toFile()
+                if (puppetFile.exists() && puppetFile.isFile) {
+                    val deleted = puppetFile.delete()
                     if (deleted) {
-                        logger.info("index.html file deleted")
+                        logger.info("Puppet file $PUPPET_HTML_FILENAME deleted")
                     } else {
-                        logger.warn("Failed to delete index.html file")
+                        logger.warn("Failed to delete puppet file $PUPPET_HTML_FILENAME")
                     }
                 } else {
-                    logger.info("index.html file does not exist, no need to clean up")
+                    logger.info("Puppet file $PUPPET_HTML_FILENAME does not exist, no need to clean up")
                 }
             }
             resourceRootDir = null
+            tempHtmlDir = null
         } catch (e: Exception) {
-            logger.error("Failed to clean up index.html file", e)
+            logger.error("Failed to clean up puppet file", e)
         }
 
         try {
@@ -432,15 +469,15 @@ class WebViewManager(var project: Project) : Disposable, ThemeChangeListener {
         } catch (e: Exception) {
             logger.error("Failed to release WebView resources", e)
         }
-        
+
         // Reset theme data
         currentThemeConfig = null
-        
+
         // Clear callback list
         synchronized(creationCallbacks) {
             creationCallbacks.clear()
         }
-        
+
         logger.info("WebViewManager released")
     }
 
@@ -459,10 +496,10 @@ class WebViewInstance(
     val extension: Map<String, Any?>
 ) : Disposable {
     private val logger = Logger.getInstance(WebViewInstance::class.java)
-    
+
     // JCEF browser instance
     val browser = JBCefBrowser.createBuilder().setOffScreenRendering(true).build()
-    
+
     // WebView state
     private var isDisposed = false
 
@@ -478,10 +515,10 @@ class WebViewInstance(
     private var isPageLoaded = false
 
     private var currentThemeConfig: JsonObject? = null
-    
+
     // Callback for page load completion
     private var pageLoadCallback: (() -> Unit)? = null
-    
+
     init {
         setupJSBridge()
         // Enable resource loading interception
@@ -507,7 +544,7 @@ class WebViewInstance(
     fun isPageLoaded(): Boolean {
         return isPageLoaded
     }
-    
+
     /**
      * Set callback for page load completion
      * @param callback Callback function to be called when page is loaded
@@ -515,7 +552,7 @@ class WebViewInstance(
     fun setPageLoadCallback(callback: (() -> Unit)?) {
         pageLoadCallback = callback
     }
-    
+
     private fun injectTheme() {
         if(currentThemeConfig == null) {
             return
@@ -543,7 +580,7 @@ class WebViewInstance(
                                         // Extract CSS variables (format: --name:value;)
                                         const cssLines = `$cssContent`.split('\n');
                                         const cssVariables = [];
-                                        
+
                                         // Process each line, extract CSS variable declarations
                                         for (const line of cssLines) {
                                             const trimmedLine = line.trim();
@@ -556,17 +593,17 @@ class WebViewInstance(
                                                 cssVariables.push(trimmedLine);
                                             }
                                         }
-                                        
+
                                         // Merge extracted CSS variables into style attribute string
                                         const styleAttrValue = cssVariables.join(' ');
-                                        
+
                                         // Set as style attribute of html tag
                                         document.documentElement.setAttribute('style', styleAttrValue);
                                         console.log("CSS variables set as style attribute of HTML tag");
                                     } catch (error) {
                                         console.error("Error processing CSS variables:", error);
                                     }
-                                    
+
                                     // Keep original default style injection logic
                                     if(document.head) {
                                         // Inject default theme style into head, use id="_defaultStyles"
@@ -576,13 +613,13 @@ class WebViewInstance(
                                             defaultStylesElement.id = '_defaultStyles';
                                             document.head.appendChild(defaultStylesElement);
                                         }
-                                        
+
                                         // Add default_themes.css content
                                         defaultStylesElement.textContent = `
                                             html {
                                                 scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background);
                                             }
-                                            
+
                                             body {
                                                 overscroll-behavior-x: none;
                                                 background-color: transparent;
@@ -595,25 +632,25 @@ class WebViewInstance(
                                                 overflow-x: hidden;   /* prevent horizontal scrollbar */
                                                 overflow-y: auto;     /* allow vertical scrolling only */
                                             }
-                                            
+
                                             img, video {
                                                 max-width: 100%;
                                                 height: auto;        /* keep aspect ratio and avoid vertical overflow */
                                                 display: block;      /* remove inline baseline gaps that can trigger overflow */
                                             }
-                                            
+
                                             a, a code {
                                                 color: var(--vscode-textLink-foreground);
                                             }
-                                            
+
                                             p > a {
                                                 text-decoration: var(--text-link-decoration);
                                             }
-                                            
+
                                             a:hover {
                                                 color: var(--vscode-textLink-activeForeground);
                                             }
-                                            
+
                                             a:focus,
                                             input:focus,
                                             select:focus,
@@ -621,7 +658,7 @@ class WebViewInstance(
                                                 outline: 1px solid -webkit-focus-ring-color;
                                                 outline-offset: -1px;
                                             }
-                                            
+
                                             code {
                                                 font-family: var(--monaco-monospace-font);
                                                 color: var(--vscode-textPreformat-foreground);
@@ -629,16 +666,16 @@ class WebViewInstance(
                                                 padding: 1px 3px;
                                                 border-radius: 4px;
                                             }
-                                            
+
                                             pre code {
                                                 padding: 0;
                                             }
-                                            
+
                                             blockquote {
                                                 background: var(--vscode-textBlockQuote-background);
                                                 border-color: var(--vscode-textBlockQuote-border);
                                             }
-                                            
+
                                             kbd {
                                                 background-color: var(--vscode-keybindingLabel-background);
                                                 color: var(--vscode-keybindingLabel-foreground);
@@ -651,19 +688,19 @@ class WebViewInstance(
                                                 vertical-align: middle;
                                                 padding: 1px 3px;
                                             }
-                                            
+
                                             ::-webkit-scrollbar {
                                                 width: 10px;
                                                 height: 10px;
                                             }
-                                            
+
                                             ::-webkit-scrollbar-corner {
                                                 background-color: var(--vscode-editor-background);
                                             }
-                                            
+
                                             *, *::before, *::after { box-sizing: border-box; }
                                             html, body { width: 100%; height: 100%; }
-                                            
+
                                             ::-webkit-scrollbar-thumb {
                                                 background-color: var(--vscode-scrollbarSlider-background);
                                             }
@@ -796,7 +833,7 @@ class WebViewInstance(
                     return true
                 }
             }, browser.cefBrowser)
-            
+
             // Register load handler
             client.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadingStateChange(
@@ -807,7 +844,7 @@ class WebViewInstance(
                 ) {
                     logger.info("WebView loading state changed: isLoading=$isLoading, canGoBack=$canGoBack, canGoForward=$canGoForward")
                 }
-                
+
                 override fun onLoadStart(
                     browser: CefBrowser?,
                     frame: CefFrame?,
@@ -816,7 +853,7 @@ class WebViewInstance(
                     logger.info("WebView started loading: ${frame?.url}, transition type: $transitionType")
                     isPageLoaded = false
                 }
-                
+
                 override fun onLoadEnd(
                     browser: CefBrowser?,
                     frame: CefFrame?,
@@ -828,7 +865,7 @@ class WebViewInstance(
                     // Notify page load completion
                     pageLoadCallback?.invoke()
                 }
-                
+
                 override fun onLoadError(
                     browser: CefBrowser?,
                     frame: CefFrame?,
@@ -864,15 +901,23 @@ class WebViewInstance(
                     requestInitiator: String?,
                     disableDefaultHandling: BoolRef?
                 ): CefResourceRequestHandler? {
-                    logger.debug("getResourceRequestHandler,fsPath:${fsPath}")
-                    if (fsPath != null && request?.url?.contains("localhost")==true) {
-                        // Set resource root directory
-                        val path = Paths.get(fsPath)
-                        return LocalResHandler(path.pathString,request)
-                    }else{
+                    logger.debug("getResourceRequestHandler, fsPath: $fsPath")
+                    if (fsPath != null && request?.url?.contains("localhost") == true) {
+                        // Codex 扩展的资源在 webview/ 子目录
+                        val basePath = Paths.get(fsPath)
+                        val webviewPath = basePath.resolve("webview")
+
+                        // 优先使用 webview/ 子目录
+                        val resourcePath = if (webviewPath.exists()) {
+                            webviewPath
+                        } else {
+                            basePath
+                        }
+
+                        return LocalResHandler(resourcePath.pathString, request)
+                    } else {
                         return null
                     }
-
                 }
             }, browser.cefBrowser)
             logger.info("WebView resource interception enabled: $viewType/$viewId")
@@ -880,7 +925,7 @@ class WebViewInstance(
             logger.error("Failed to enable WebView resource interception", e)
         }
     }
-    
+
     /**
          * Load URL
          */
@@ -890,7 +935,7 @@ class WebViewInstance(
             browser.loadURL(url)
         }
     }
-    
+
     /**
          * Load HTML content
          */
@@ -904,7 +949,7 @@ class WebViewInstance(
             }
         }
     }
-    
+
     /**
          * Execute JavaScript
          */
@@ -914,7 +959,7 @@ class WebViewInstance(
             browser.cefBrowser.executeJavaScript(script, browser.cefBrowser.url, 0)
         }
     }
-    
+
     /**
          * Open developer tools
          */
@@ -923,7 +968,7 @@ class WebViewInstance(
             browser.openDevtools()
         }
     }
-    
+
     override fun dispose() {
         if (!isDisposed) {
             browser.dispose()

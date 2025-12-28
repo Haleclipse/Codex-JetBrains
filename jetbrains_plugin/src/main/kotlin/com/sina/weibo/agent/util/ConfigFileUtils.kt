@@ -157,13 +157,11 @@ object ConfigFileUtils {
      */
     fun createDefaultMainConfig() {
         val properties = Properties()
-        properties.setProperty(PluginConstants.ConfigFiles.EXTENSION_TYPE_KEY, "roo-code")
-        properties.setProperty("# Available extension types:", "")
-        properties.setProperty("# - roo-code: Roo Code extension", "")
-        properties.setProperty("# - cline: Cline AI extension", "")
-        properties.setProperty("# - custom: Custom extension", "")
-        
-        saveMainConfig(properties, "RunVSAgent Extension Configuration - Default Template")
+        properties.setProperty(PluginConstants.ConfigFiles.EXTENSION_TYPE_KEY, "codex")
+        properties.setProperty("# Extension type:", "")
+        properties.setProperty("# - codex: OpenAI Codex extension", "")
+
+        saveMainConfig(properties, "Codex Extension Configuration - Default Template")
     }
     
     /**

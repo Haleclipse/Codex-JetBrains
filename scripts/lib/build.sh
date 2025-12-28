@@ -33,7 +33,7 @@ init_build_env() {
     export PLUGIN_BUILD_DIR="$PROJECT_ROOT/$PLUGIN_SUBMODULE_PATH"
     export BASE_BUILD_DIR="$PROJECT_ROOT/$EXTENSION_HOST_DIR"
     export IDEA_BUILD_DIR="$PROJECT_ROOT/$IDEA_DIR"
-    export VSCODE_PLUGIN_NAME="${VSCODE_PLUGIN_NAME:-roo-code}"
+    export VSCODE_PLUGIN_NAME="${VSCODE_PLUGIN_NAME:-codex}"
     export VSCODE_PLUGIN_TARGET_DIR="$IDEA_BUILD_DIR/plugins/${VSCODE_PLUGIN_NAME}"
     
     # Validate build tools
@@ -132,46 +132,44 @@ revert_vscode_changes() {
 }
 
 # Build VSCode extension
+# Note: Codex extension is pre-built, no need to compile
 build_vscode_extension() {
     if [[ "$SKIP_VSCODE_BUILD" == "true" ]]; then
         log_info "Skipping VSCode extension build"
         return 0
     fi
-    
-    log_step "Building VSCode extension..."
-    
+
+    log_step "Preparing Codex extension..."
+
     cd "$PLUGIN_BUILD_DIR"
-    
-    # Install dependencies
-    local pkg_manager="npm"
-    if command_exists "pnpm" && [[ -f "pnpm-lock.yaml" ]]; then
-        pkg_manager="pnpm"
+
+    # Check if extension is pre-built (has out/extension.js)
+    if [[ -f "$PLUGIN_BUILD_DIR/out/extension.js" ]]; then
+        log_info "Codex extension is pre-built, skipping compilation"
+        log_success "Codex extension ready"
+        return 0
     fi
-    
-    log_info "Installing dependencies with $pkg_manager..."
-    execute_cmd "$pkg_manager install" "dependency installation"
-    
-    # Apply Windows compatibility fix if needed
-    apply_windows_compatibility_fix
-    
-    # Build based on mode
-    if [[ "$BUILD_MODE" == "$BUILD_MODE_DEBUG" ]]; then
-        log_info "Building in debug mode..."
-        export USE_DEBUG_BUILD="true"
-        execute_cmd "$pkg_manager run vsix" "VSIX build"
-        execute_cmd "$pkg_manager run bundle" "bundle build"
-    else
-        log_info "Building in release mode..."
-        execute_cmd "$pkg_manager run vsix" "VSIX build"
+
+    # If not pre-built, try to build (fallback for development)
+    if [[ -f "$PLUGIN_BUILD_DIR/package.json" ]]; then
+        local pkg_manager="npm"
+        if command_exists "pnpm" && [[ -f "pnpm-lock.yaml" ]]; then
+            pkg_manager="pnpm"
+        fi
+
+        # Check if build script exists
+        if grep -q '"build"' "$PLUGIN_BUILD_DIR/package.json" 2>/dev/null; then
+            log_info "Installing dependencies with $pkg_manager..."
+            execute_cmd "$pkg_manager install" "dependency installation"
+
+            log_info "Building extension..."
+            execute_cmd "$pkg_manager run build" "extension build"
+        else
+            log_info "No build script found, assuming pre-built extension"
+        fi
     fi
-    
-    # Find the generated VSIX file
-    VSIX_FILE=$(get_latest_file "$PLUGIN_BUILD_DIR/bin" "*.vsix")
-    if [[ -z "$VSIX_FILE" ]]; then
-        die "VSIX file not found after build"
-    fi
-    
-    log_success "VSCode extension built: $VSIX_FILE"
+
+    log_success "Codex extension prepared"
 }
 
 # Apply Windows compatibility fix
@@ -209,95 +207,71 @@ extract_vsix() {
     log_success "VSIX extracted to: $extract_dir"
 }
 
-# Copy VSIX contents to target directory
+# Copy Codex extension to target directory
+# Codex is pre-built, directly copy the directory instead of extracting VSIX
 copy_vscode_extension() {
-    local vsix_file="${1:-$VSIX_FILE}"
+    local source_dir="${1:-$PLUGIN_BUILD_DIR}"
     local target_dir="${2:-$VSCODE_PLUGIN_TARGET_DIR}"
-    
-    if [[ -z "$vsix_file" ]]; then
-        die "No VSIX file specified"
-    fi
-    
-    log_step "Copying VSCode extension files..."
-    
+
+    log_step "Copying Codex extension files..."
+
     # Clean target directory
     remove_dir "$target_dir"
     ensure_dir "$target_dir"
-    
-    # Extract VSIX to temp directory
-    local temp_extract_dir="$BUILD_TEMP_DIR/vsix_extract"
-    extract_vsix "$vsix_file" "$temp_extract_dir"
-    
-    # Copy extension files
-    copy_files "$temp_extract_dir/extension" "$target_dir/" "VSCode extension files"
-    
-    log_success "VSCode extension files copied"
+
+    # Copy extension files directly (Codex is pre-built)
+    if [[ -d "$source_dir" ]]; then
+        # Copy all necessary files
+        local files_to_copy=("out" "webview" "package.json" "resources" "syntaxes" "bin")
+
+        for item in "${files_to_copy[@]}"; do
+            if [[ -e "$source_dir/$item" ]]; then
+                copy_files "$source_dir/$item" "$target_dir/" "$item"
+            fi
+        done
+
+        # Copy LICENSE and readme if exist
+        [[ -f "$source_dir/LICENSE.md" ]] && cp "$source_dir/LICENSE.md" "$target_dir/"
+        [[ -f "$source_dir/readme.md" ]] && cp "$source_dir/readme.md" "$target_dir/"
+
+        log_success "Codex extension files copied"
+    else
+        die "Codex extension source directory not found: $source_dir"
+    fi
 }
 
 # Copy debug resources (for debug builds)
+# Adapted for Codex extension structure
 copy_debug_resources() {
     if [[ "$BUILD_MODE" != "$BUILD_MODE_DEBUG" ]]; then
         return 0
     fi
-    
-    log_step "Copying debug resources..."
-    
+
+    log_step "Copying Codex debug resources..."
+
     local debug_res_dir="$PROJECT_ROOT/debug-resources"
-    local vscode_plugin_debug_dir="$debug_res_dir/${VSCODE_PLUGIN_NAME}"
-    
+    local codex_debug_dir="$debug_res_dir/${VSCODE_PLUGIN_NAME}"
+
     # Clean debug resources
     remove_dir "$debug_res_dir"
-    ensure_dir "$vscode_plugin_debug_dir"
-    
+    ensure_dir "$codex_debug_dir"
+
     cd "$PLUGIN_BUILD_DIR"
-    
-    # Copy various debug resources
-    copy_files "src/dist/i18n" "$vscode_plugin_debug_dir/dist/" "i18n files"
-    copy_files "src/dist/extension.js" "$vscode_plugin_debug_dir/dist/" "extension.js"
-    copy_files "src/dist/extension.js.map" "$vscode_plugin_debug_dir/dist/" "extension.js.map"
-    
-    # Copy WASM files
-    find "$PLUGIN_BUILD_DIR/src/dist" -maxdepth 1 -name "*.wasm" -exec cp {} "$vscode_plugin_debug_dir/dist/" \;
-    
-    # Copy assets and audio
-    copy_files "src/assets" "$vscode_plugin_debug_dir/" "assets"
-    copy_files "src/webview-ui/audio" "$vscode_plugin_debug_dir/" "audio files"
-    
-    # Copy webview build
-    copy_files "src/webview-ui/build" "$vscode_plugin_debug_dir/webview-ui/" "webview build"
-    
-    # Copy theme files
-    ensure_dir "$vscode_plugin_debug_dir/src/integrations/theme/default-themes"
-    copy_files "src/integrations/theme/default-themes" "$vscode_plugin_debug_dir/src/integrations/theme/" "default themes"
-    
-    # Copy IDEA themes if they exist
-    local idea_themes_dir="$IDEA_BUILD_DIR/src/main/resources/themes"
-    if [[ -d "$idea_themes_dir" ]]; then
-        copy_files "$idea_themes_dir/*" "$vscode_plugin_debug_dir/src/integrations/theme/default-themes/" "IDEA themes"
-    fi
-    
-    # Copy JSON files (excluding specific ones)
-    for json_file in "$PLUGIN_BUILD_DIR"/*.json; do
-        local filename=$(basename "$json_file")
-        if [[ "$filename" != "package-lock.json" && "$filename" != "tsconfig.json" ]]; then
-            copy_files "$json_file" "$vscode_plugin_debug_dir/" "$filename"
+
+    # Copy Codex extension files for debug
+    local files_to_copy=("out" "webview" "package.json" "resources" "syntaxes" "bin")
+
+    for item in "${files_to_copy[@]}"; do
+        if [[ -e "$PLUGIN_BUILD_DIR/$item" ]]; then
+            copy_files "$PLUGIN_BUILD_DIR/$item" "$codex_debug_dir/" "$item"
         fi
     done
-    
-    # Remove type field from package.json for CommonJS compatibility
-    local debug_package_json="$vscode_plugin_debug_dir/package.json"
-    if [[ -f "$debug_package_json" ]]; then
-        node -e "
-            const fs = require('fs');
-            const pkgPath = process.argv[1];
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-            delete pkg.type;
-            fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-            console.log('Removed type field from debug package.json for CommonJS compatibility');
-        " "$debug_package_json"
-    fi
-    
-    log_success "Debug resources copied"
+
+    # Copy LICENSE and readme if exist
+    [[ -f "$PLUGIN_BUILD_DIR/LICENSE.md" ]] && cp "$PLUGIN_BUILD_DIR/LICENSE.md" "$codex_debug_dir/"
+    [[ -f "$PLUGIN_BUILD_DIR/readme.md" ]] && cp "$PLUGIN_BUILD_DIR/readme.md" "$codex_debug_dir/"
+
+    log_success "Codex debug resources copied"
 }
 
 # Build base extension

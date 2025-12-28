@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Build script for RunVSAgent project
-# This script builds VSCode extension and IDEA plugin
+# Build script for Codex-JetBrains project
+# This script builds Codex extension and JetBrains plugin
 
 set -euo pipefail
 
@@ -28,16 +28,16 @@ OUTPUT_DIR=""
 # Show help for this script
 show_help() {
     cat << EOF
-$SCRIPT_NAME - Build RunVSAgent project components
+$SCRIPT_NAME - Build Codex-JetBrains project components
 
 USAGE:
     $SCRIPT_NAME [OPTIONS] [TARGET]
 
 DESCRIPTION:
-    This script builds the RunVSAgent project components:
-    - VSCode extension (from submodule)
+    This script builds the Codex-JetBrains project components:
+    - Codex extension (from deps/codex)
     - Base extension runtime
-    - IDEA plugin
+    - JetBrains plugin
 
 TARGETS:
     all         Build all components (default)
@@ -474,7 +474,7 @@ show_build_summary() {
 
 # Main build function
 main() {
-    log_info "Starting RunVSAgent build process..."
+    log_info "Starting Codex-JetBrains build process..."
     log_info "Script: $SCRIPT_NAME v$SCRIPT_VERSION"
     log_info "Platform: $(get_platform)"
     log_info "Project root: $PROJECT_ROOT"

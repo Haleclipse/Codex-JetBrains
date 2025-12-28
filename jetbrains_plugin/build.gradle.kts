@@ -60,11 +60,11 @@ kotlin {
 val ext = project.extensions.extraProperties
 ext.set("debugMode", findProperty("debugMode") ?: "none")
 ext.set("debugResource", project.projectDir.resolve("../debug-resources").absolutePath)
-ext.set("vscodePlugin", findProperty("vscodePlugin") ?: "roo-code")
+ext.set("vscodePlugin", findProperty("vscodePlugin") ?: "codex")
 
 // Strongly-typed providers (avoid stringly-typed ext lookups during configuration)
 val debugModeProp = providers.gradleProperty("debugMode").orElse("none")
-val vscodePluginProp = providers.gradleProperty("vscodePlugin").orElse("roo-code")
+val vscodePluginProp = providers.gradleProperty("vscodePlugin").orElse("codex")
 
 fun Sync.prepareSandbox() {
     // Read once during configuration; values also wired as task inputs below

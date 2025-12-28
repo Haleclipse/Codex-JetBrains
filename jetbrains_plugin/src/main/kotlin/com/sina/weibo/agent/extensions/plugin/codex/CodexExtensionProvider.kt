@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-package com.sina.weibo.agent.extensions.plugin.roo
+package com.sina.weibo.agent.extensions.plugin.codex
 
 import com.intellij.openapi.project.Project
 import com.sina.weibo.agent.extensions.common.ExtensionType
@@ -16,31 +16,31 @@ import com.sina.weibo.agent.util.PluginResourceUtil
 import java.io.File
 
 /**
- * Roo Code extension provider implementation
+ * OpenAI Codex extension provider implementation
  */
-class RooExtensionProvider : ExtensionProvider {
-    
-    override fun getExtensionId(): String = "roo-code"
-    
-    override fun getDisplayName(): String = "Roo Code"
-    
-    override fun getDescription(): String = "AI-powered code assistant"
-    
+class CodexExtensionProvider : ExtensionProvider {
+
+    override fun getExtensionId(): String = "codex"
+
+    override fun getDisplayName(): String = "OpenAI Codex"
+
+    override fun getDescription(): String = "OpenAI Codex AI-powered code assistant"
+
     override fun initialize(project: Project) {
-        // Initialize roo extension configuration
+        // Initialize Codex extension configuration
         val extensionConfig = ExtensionConfiguration.getInstance(project)
         extensionConfig.initialize()
-        
+
         // Initialize extension manager factory
         val extensionManagerFactory = ExtensionManagerFactory.getInstance(project)
         extensionManagerFactory.initialize()
     }
-    
+
     override fun isAvailable(project: Project): Boolean {
-        // Check if roo-code extension files exist
+        // Check if codex extension files exist
         val extensionConfig = ExtensionConfiguration.getInstance(project)
-        val config = extensionConfig.getConfig(ExtensionType.ROO_CODE)
-        
+        val config = extensionConfig.getConfig(ExtensionType.CODEX)
+
         // First check project paths
         val possiblePaths = listOf(
             "${getUserConfigDir()}/plugins/${config.codeDir}"
@@ -49,7 +49,7 @@ class RooExtensionProvider : ExtensionProvider {
         if (possiblePaths.any { File(it).exists() }) {
             return true
         }
-        
+
         // Then check plugin resources (for built-in extensions)
         try {
             val pluginResourcePath = PluginResourceUtil.getResourcePath(
@@ -62,15 +62,14 @@ class RooExtensionProvider : ExtensionProvider {
         } catch (e: Exception) {
             // Ignore exceptions when checking plugin resources
         }
-        
+
         // For development/testing, always return true if we can't find the files
-        // This allows the extension to work even without the actual extension files
         return false
     }
-    
+
     override fun getConfiguration(project: Project): ExtensionMetadata {
         val extensionConfig = ExtensionConfiguration.getInstance(project)
-        val config = extensionConfig.getConfig(ExtensionType.ROO_CODE);
+        val config = extensionConfig.getConfig(ExtensionType.CODEX)
 
         return object : ExtensionMetadata {
             override fun getCodeDir(): String = config.codeDir
@@ -83,8 +82,8 @@ class RooExtensionProvider : ExtensionProvider {
             override fun getExtensionDependencies(): List<String> = config.extensionDependencies
         }
     }
-    
+
     override fun dispose() {
         // Cleanup resources if needed
     }
-} 
+}
